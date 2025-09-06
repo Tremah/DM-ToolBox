@@ -1,2 +1,2 @@
 # DM-ToolBox
-A set of tools for Dungeon- and Game Masters
+A set of tools for Dungeon- and Game Masters.
