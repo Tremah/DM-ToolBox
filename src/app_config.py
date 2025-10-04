@@ -11,7 +11,7 @@ DB_SQL_EXPORT_PATH = Path(ROOT_EXPORT_PATH) / 'database'
 JSON_EXPORT_PATH = Path(ROOT_EXPORT_PATH) / 'json'
 
 # Foundry VTT
-FOUNDRY_INSTALL_DATA_PATH = '/home/patrick/.local/share/FoundryVTT/Data'
+FOUNDRY_INSTALL_DATA_PATH = ''
 FOUNDRY_MODULE_ROOT_PATH = Path(f'modules')
 OSR_EQUIPMENT_PACK_NAME = 'osr-armor-weapons-equipment'
 OSR_EQUIPMENT_IMAGE_PATH = Path(FOUNDRY_MODULE_ROOT_PATH) / OSR_EQUIPMENT_PACK_NAME / 'data/images'

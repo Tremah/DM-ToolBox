@@ -1,0 +1,21 @@
+QGroupBox {
+  border: 1px solid #555; margin-top: 9px;
+ }
+
+QGroupBox::title {
+  subcontrol-origin: margin;
+  left: 15px;
+  padding: 0px 1px 0px 1px;
+}
+
+QTextEdit#labelTextEdit {
+    background: transparent;
+    border: 0px solid white;;
+    padding: 0px;
+    margin: 0px;
+    font: inherit;
+}
+
+QLabel {
+   border: 0px solid white;
+}

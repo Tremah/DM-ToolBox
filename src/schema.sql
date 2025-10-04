@@ -3,17 +3,23 @@ drop table if exists AVERAGE_TEMPERATURE_X_MONTH_X_CLIMATE;
 drop table if exists CHALLENGE_RATING;
 drop table if exists CLIMATE;
 drop table if exists CLIMATE_X_MONTH_X_PRECIPITATION_CLASS;
+drop table if exists CONTENT_SOURCE;
 drop table if exists CREATURE;
 drop table if exists CREATURE_TYPE;
 drop table if exists CREATURE_X_ENVIRONMENT;
 drop table if exists CREATURE_X_GAME_SYSTEM;
+drop table if exists CREATURE_X_GAME_SYSTEM_PROPERTY;
+drop table if exists GAME_SYSTEM_X_CREATURE_PROPERTY;
 drop table if exists DIE;
 drop table if exists ENCOUNTER_TABLE;
 drop table if exists ENVIRONMENT;
 drop table if exists GAME_SYSTEM;
+drop table if exists GAME_SYSTEM_X_CREATURE_PROPERTY;
 drop table if exists GAME_PARAMETER;
 drop table if exists GAME_PARAMETER_TYPE;
 drop table if exists GAME_PARAMETER_TYPE_DESCRIPTION;
+drop table if exists ITEM;
+drop table if exists ITEM_TYPE;
 drop table if exists MONTH;
 drop table if exists PRECIPITATION_CLASS;
 drop table if exists ROOM_CONTENT_X_GAME_SYSTEM;
@@ -44,32 +50,38 @@ create table CLIMATE (
   NAME varchar(100) not null
 );
 
-create table CREATURE (
-  ID integer primary key,
-  NAME varchar(100) not null,
-  TYPE integer not null,
-  TYPE integer not null,
-  SUBTYPE integer,
-  CR integer,
-  ALIGNMENT integer,
-  SOURCE varchar(500),
-  foreign key(TYPE) references CREATURE_TYPE(ID),
-  foreign key(CR) references CHALLENGE_RATING(ID),
-  foreign key(ALIGNMENT) references ALIGNMENT(ID)
+create table GAME_SYSTEM (
+  ID integer primary key autoincrement,
+  NAME varchar(250),
+  NAME_SHORT varchar(30) not null
 );
 
-create unique index "ID_IDX" on "CREATURE" (
-  "ID" ASC
+create table CONTENT_SOURCE (
+  ID integer primary key,
+  NAME varchar(300)
 );
 
 create table CREATURE_TYPE (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(100) not null,
   IS_SUBTYPE boolean not null
 );
 
+create table CREATURE(
+  ID integer primary key,
+  NAME varchar(200) not null,
+  TYPE integer not null,
+  GAME_SYSTEM integer not null,
+  DESCRIPTION varchar(1000),
+  TRAITS varchar(1000),
+  SOURCE integer,
+  foreign key(TYPE) references CREATURE_TYPE(ID),
+  foreign key(GAME_SYSTEM) references GAME_SYSTEM(ID),
+  foreign key(SOURCE) references CONTENT_SOURCE(ID)
+);
+
 create table DIE (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(10) not null,
   FACES integer not null,
   AVERAGE_VALUE float not null
@@ -89,23 +101,23 @@ create table ENCOUNTER_TABLE (
 );
 
 create table ENVIRONMENT (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(100) not null
 );
 
 create table GAME_SYSTEM (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(250),
   NAME_SHORT varchar(30) not null
 );
 
 create table GAME_PARAMETER_TYPE (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(100) not null
 );
 
 create table GAME_PARAMETER_TYPE_DESCRIPTION (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   TYPE integer not null,
   VALUE_1 varchar(500),
   VALUE_2 varchar(500),
@@ -137,15 +149,47 @@ create table GAME_PARAMETER(
   foreign key(TYPE) references GAME_PARAMETER_TYPE(ID)
 );
 
+create table ITEM_TYPE(
+  ID integer primary key,
+  NAME varchar(100)
+);
+
+create table ITEM(
+  ID integer primary key,
+  NAME varchar(200) not null,
+  TYPE integer not null,
+  CATEGORY varchar(100),
+  WEIGHT integer,
+  COST integer,
+  ATTRIBUTES varchar(200),
+  AC integer,
+  DAMAGE varchar(30),
+  RANGE_SHORT integer,
+  RANGE_MEDIUM integer,
+  RANGE_LONG integer,
+  DESCRIPTION varchar(2000),
+  IMAGE varchar(200),
+  TO_FOUNDRY boolean,
+  foreign key(TYPE) references ITEM_TYPE(ID)
+);
+
+create table FOUNDRY_ITEM_KEYS (
+  ID integer primary key,
+  ITEM_ID integer,
+  ITEM_NAME varchar(200),
+  KEY varchar(16),
+  foreign key(ITEM_ID) references ITEM(ID)
+);
+
 create table MONTH (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   SEQUENCE integer not null,
   NAME varchar(50) not null,
   CUSTOM integer
 );
 
 create table PRECIPITATION_CLASS (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   CLASS varchar(5) not null,
   NAME varchar(50),
   PRECIPITATION varchar(100),
@@ -156,7 +200,7 @@ create table PRECIPITATION_CLASS (
 );
 
 create table ROOM_CONTENT_X_GAME_SYSTEM (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   GAME_SYSTEM integer not null,
   PROBABILITY float not null,
   CONTENT varchar(500),
@@ -165,13 +209,13 @@ create table ROOM_CONTENT_X_GAME_SYSTEM (
 );
 
 create table WEATHER_EVENT (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   NAME varchar(100),
   DESCRIPTION varchar(1000)
 );
 
 create table WEATHER_EVENT_DURATION (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   WEATHER_EVENT integer,
   DURATION varchar(100),
   PROBABILITY float not null,
@@ -179,7 +223,7 @@ create table WEATHER_EVENT_DURATION (
 );
 
 create table TEMPERATURE_DEVIATION_X_CLIMATE (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   CLIMATE integer not null,
   PROBABILITY float not null,
   DEVIATION_DEG integer not null,
@@ -188,16 +232,15 @@ create table TEMPERATURE_DEVIATION_X_CLIMATE (
 );
 
 create table FOUNDRY_ITEM_KEYS (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   ITEM_NAME varchar(200),
   KEY varchar(16)
 );
 
-
 --Junction Tables
 
 create table CLIMATE_X_MONTH_X_PRECIPITATION_CLASS (
-  ID integer primary key autoincrement,
+  ID integer primary key,
   CLIMATE integer not null,
   MONTH integer not null,
   PRECIPITATION_CLASS integer not null,
@@ -208,23 +251,42 @@ create table CLIMATE_X_MONTH_X_PRECIPITATION_CLASS (
 );
 
 create table CREATURE_X_ENVIRONMENT(
+  ID integer primary key,
   CREATURE integer not null,
   ENVIRONMENT integer not null,
-  primary key(CREATURE, ENVIRONMENT),
   foreign key(CREATURE) references CREATURE(ID),
   foreign key(ENVIRONMENT) references ENVIRONMENT(ID)
 );
 
 create table CREATURE_X_GAME_SYSTEM(
-  ID integer primary key autoincrement,
+  ID integer primary key,
   CREATURE integer not null,
   GAME_SYSTEM integer not null,
   foreign key(CREATURE) references CREATURE(ID),
   foreign key(GAME_SYSTEM) references GAME_SYSTEM(ID)
 );
 
-create table AVERAGE_TEMPERATURE_X_MONTH_X_CLIMATE(
+create table GAME_SYSTEM_X_CREATURE_PROPERTY(
   ID integer primary key autoincrement,
+  GAME_SYSTEM integer not null,
+  PROPERTY varchar(50),
+  LABEL varchar(200),
+  foreign key(GAME_SYSTEM) references GAME_SYSTEM(ID)
+);
+
+create table CREATURE_X_GAME_SYSTEM_PROPERTY(
+  ID integer primary key,
+  CREATURE integer not null,
+  GAME_SYSTEM integer not null,
+  PROPERTY integer not null,
+  VALUE varchar(1000),
+  foreign key(CREATURE) references CREATURE(ID),
+  foreign key(GAME_SYSTEM) references GAME_SYSTEM(ID),
+  foreign key(PROPERTY) references GAME_SYSTEM_X_CREATURE_PROPERTY(ID)
+);
+
+create table AVERAGE_TEMPERATURE_X_MONTH_X_CLIMATE(
+  ID integer primary key,
   CLIMATE integer not null,
   MONTH integer not null,
   TEMPERATURE_DEG integer not null,
@@ -372,21 +434,26 @@ insert into CLIMATE_X_MONTH_X_PRECIPITATION_CLASS (CLIMATE, MONTH, PRECIPITATION
 insert into CLIMATE_X_MONTH_X_PRECIPITATION_CLASS (CLIMATE, MONTH, PRECIPITATION_CLASS, PROBABILITY) values (3, 12, 5, 22.0);
 insert into CLIMATE_X_MONTH_X_PRECIPITATION_CLASS (CLIMATE, MONTH, PRECIPITATION_CLASS, PROBABILITY) values (3, 12, 6, 10.0);
 
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Aberration', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Beast', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Celestial', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Construct', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Dragon', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Elemental', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Fey', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Fiend', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Giant', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Goblinoid', TRUE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Humanoid', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Monstrosity', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Ooze', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Plant', FALSE);
-insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values ('Undead', FALSE);
+insert into CONTENT_SOURCE(NAME) values('OSE Advanced Referee Tome');
+insert into CONTENT_SOURCE(NAME) values('AD&D 2e Monstrous Manual');
+insert into CONTENT_SOURCE(NAME) values('Custom');
+
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Aberration', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Beast', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Celestial', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Construct', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Dragon', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Elemental', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Fey', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Fiend', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Giant', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Goblinoid', TRUE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Humanoid', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Monstrosity', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Ooze', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Plant', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values('Undead', FALSE);
+insert into CREATURE_TYPE(NAME, IS_SUBTYPE) values("Any Type", 0);
 
 insert into DIE(NAME, FACES, AVERAGE_VALUE) values('d2', 2, 1.5);
 insert into DIE(NAME, FACES, AVERAGE_VALUE) values('d4', 4, 2.5);
@@ -412,6 +479,35 @@ insert into ENVIRONMENT(NAME) values('Swamp');
 insert into ENVIRONMENT(NAME) values('Underground');
 insert into ENVIRONMENT(NAME) values('Underwater');
 insert into ENVIRONMENT(NAME) values('Urban');
+insert into ENVIRONMENT(NAME) values('River');
+insert into ENVIRONMENT(NAME) values('Jungle');
+
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Old School Essentials', 'OSE');
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Original Dungeons & Dragons', 'OD&D');
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Basic/Expert Dungeons & Dragons', 'B/X D&D');
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Advanced Dungeons & Dragons 1st Edition', 'AD&D 1e');
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Advanced Dungeons & Dragons 2nd Edition', 'AD&D 2e');
+insert into GAME_SYSTEM(NAME, NAME_SHORT) values('Dungeons & Dragons 5th Edition', 'D&D 5e');
+
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'HD', 'Hit Dice');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'AC', 'Armor Class');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'THAC0', 'To Hit Armor Class Zero');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'ATTACKS', 'Attacks');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'TRAITS', 'Traits and Properties');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_HD', 'Save As HD');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_D', 'Save Against Death/Poison');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_W', 'Save Against Wands');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_P', 'Save Against Paralysis And Petrification');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_B', 'Save Against Breath Attacks');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'SV_S', 'Save Against Spells, Rods And Staves');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'MOVEMENT', 'Movement');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'XP', 'XP');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'TTP', 'Treasure Type Personal');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'TTL', 'Treasure Type Lair');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'NAD', 'Number Appearing Dungeon');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'NAW', 'Number Appearing Wilderness');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'ALIGNMENT', 'Alignment');
+insert into GAME_SYSTEM_X_CREATURE_PROPERTY(GAME_SYSTEM, PROPERTY, LABEL) values(1, 'MORALE', 'Morale');
 
 insert into GAME_PARAMETER_TYPE(NAME) values('GAME_SYSTEM');
 insert into GAME_PARAMETER_TYPE(NAME) values('DUNGEON_SIZE');
@@ -429,10 +525,11 @@ insert into GAME_PARAMETER_TYPE(NAME) values('DUNGEON_NAME');
 insert into GAME_PARAMETER_TYPE(NAME) values('TREASURE_ITEM');
 insert into GAME_PARAMETER_TYPE(NAME) values('CHARACTER_ATTRIBUTES');
 insert into GAME_PARAMETER_TYPE(NAME) values('LANGUAGE');
-insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_ARMOR');
-insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_WEAPON');
 insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_LANGUAGE');
 insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_PRIME_REQUISITE');
+insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_ARMOR');
+insert into GAME_PARAMETER_TYPE(NAME) values('CLASS_X_WEAPON');
+insert into GAME_PARAMETER_TYPE(NAME) values('GAME_SYSTEM_X_CREATURE_PROPERTY');
 
 insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2) values(1, 'Game system name (NAME)', 'Short game system name (NAME_SHORT)');
 insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2, VALUE_3) values(2, 'Description (DESCRIPTION)', 'Number of levels (NUMBER_OF_LEVELS)', 'Number of rooms per level (NUMBER_OF_ROOMS_PER_LEVEL)');
@@ -453,6 +550,9 @@ insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1) values(38, 'Language 
 insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2) values(39, 'Class (CLASS)', 'Language (LANGUAGE)');
 insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2) values(40, 'Class (CLASS)', 'PRIME_REQUISITE (PRIME_REQUISITE)');
 insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2, VALUE_3, VALUE_4, VALUE_5, VALUE_6) values(41, 'NAME (NAME)', 'Type (TYPE)', 'Subtype (SUBTYPE)', 'Category (CATEGORY)' 'Description (DESCRIPTION)', 'Weight (WEIGHT)', 'Cost in gp (COST)');
+insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2) values(42, 'Class (CLASS)', 'Armor (ARMOR)');
+insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2) values(43, 'Class (CLASS)', 'Weapon (WEAPON)');
+insert into GAME_PARAMETER_TYPE_DESCRIPTION(TYPE, VALUE_1, VALUE_2, VALUE_3) values(45, 'Game system (GAME_SYSTEM)', 'Property (PROPERTY)', 'Code (CODE)');
 
 
 insert into GAME_PARAMETER(TYPE, ID, VALUE_1, VALUE_2) values(1, 1, 'Old School Essentials', 'OSE');

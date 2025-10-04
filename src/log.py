@@ -1,5 +1,6 @@
 import logging
 from PySide6.QtWidgets import QWidget, QTextEdit, QVBoxLayout, QPushButton, QSizePolicy
+from PySide6.QtGui import QFont, QTextCharFormat, QColor
 
 
 class LogWindow(QWidget, logging.Handler):
@@ -9,11 +10,11 @@ class LogWindow(QWidget, logging.Handler):
 
     self.setWindowTitle('Log')
     self.setMaximumWidth(700)
-    self.setMinimumWidth(700)
+    self.setMinimumWidth(650)
     self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.resize(700, 900)
 
     self.logTextEdit = QTextEdit(self)
+    self.logTextEdit.setFont(QFont('Ubuntu Sans', 11))
     self.logTextEdit.setReadOnly(True)
 
     self.clearButton = QPushButton('Clear')
@@ -30,7 +31,17 @@ class LogWindow(QWidget, logging.Handler):
     logging.getLogger().setLevel(logging.DEBUG)
 
   def emit(self, record):
-    self.logTextEdit.append(self.format(record))
+    _msg = self.format(record)
+    _cursor = self.logTextEdit.textCursor()
+    fmt = QTextCharFormat()
+
+    if record.levelno >= logging.ERROR:
+      fmt.setForeground(QColor("red"))
+    elif record.levelno >= logging.WARNING:
+      fmt.setForeground(QColor("orange"))
+
+    _cursor.insertText(_msg + '\n', fmt)
+    self.logTextEdit.setTextCursor(_cursor)
 
 
 

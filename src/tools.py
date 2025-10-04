@@ -1,5 +1,6 @@
 import logging, math, csv, json, os, subprocess, copy, datetime
 import random as rand
+import shutil
 from pathlib import Path
 from random import choice
 
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import (
   QStackedWidget,
   QSizePolicy,
   QGroupBox,
-  QComboBox, QPlainTextEdit, QSpacerItem, QFileDialog, QSpinBox, QTableWidget, QTableWidgetItem, QTableView, QLineEdit, QHBoxLayout
+  QComboBox, QPlainTextEdit, QSpacerItem, QFileDialog, QSpinBox, QTableWidget, QTableWidgetItem, QTableView, QLineEdit, QHBoxLayout, QCheckBox
 )
 
 import database as db
@@ -281,9 +282,6 @@ class CharacterBuildWidget(QWidget):
     self.generalGroupBox.setMaximumSize(400, 300)
     self.generalGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.generalGroupBox.setLayout(self.generalGroupBoxLayout)
-
-
-
 
     ## Finish character group box
     self.characterGroupBoxLayout = QGridLayout()
@@ -592,7 +590,6 @@ class DungeonCreatorWidget(QWidget):
       if _newItems:
         _allMagicItemTypes.extend(_magicItemTypesTemp)
 
-
     _coins = {}
     _gems = {}
     _jewellery = {}
@@ -842,156 +839,465 @@ class DungeonCreatorWidget(QWidget):
     elif self.numberOfLevels < _oldNumber:
       self.levelSettingTableWidget.hideRow(self.numberOfLevels)
 
-class ItemDataManagerWidget(QWidget):
+class FoundryDataManagerWidget(QWidget):
   def __init__(self):
     super().__init__()
 
-    # Data Models
-    # self.climateModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
-    # self.climateModel.setParameter(parameterName='CLIMATE')
-
     # Fields
-    self.currentImportCsvFilePath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/csv/osr_armor_weapons_equipment_export.csv'
-    self.jsonImportPath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/json'
+    self.currentItemCsvFilePath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/csv/osr_armor_weapons_equipment_export.csv'
+    self.currentActorCsvFilePath = f'{apc.ROOT_INPUT_PATH}/actors/csv/character_export.csv'
     self.imageImportPath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/images'
     self.jsonExportPath = f'{apc.JSON_EXPORT_PATH}/foundry_module_osr_armor_weapons_equipment'
     self.itemKeyLength = 16 # Foundry says it must be 16 digits
-    #self.itemData = {'WEAPON_AMMUNITION': [], 'ARMOR': [], 'EQUIPMENT': []}
     self.itemData = []
     self.itemKeys = []
+    self.actorData = []
     self.loadItemKeysFromDatabase()
+
+    # UI Control
+    _groupBoxMinWidth = 600
+    _groupBoxMaxWidth = 900
+    _groupBoxMinHeight = 100
+    _groupBoxMaxHeight = 150
+    _fontSizeSmall = 10
+    _fontSizeNormal = 12
+    _fontSizeLarge = 14
 
     # Foundry json objects
     self.foundryItemTagTemplate = {'title': '', 'value': ''}
 
     # Header Label
-    _headerLabel = QLabel('Item Data Manager')
-    _headerLabel.setFont(QFont('Ubuntu Sans', 14))
+    _headerLabel = QLabel('Foundry Data Manager')
+    _headerLabel.setFont(QFont('Ubuntu Sans', _fontSizeLarge))
     _headerLabel.setMaximumSize(500, 20)
 
-    # Main Group Box
-    self.itemDataManagerGroupBox = QGroupBox()
-    self.itemDataManagerGroupBox.setTitle('Settings')
-    self.itemDataManagerGroupBox.setMinimumSize(900, 900)
-    self.itemDataManagerGroupBox.setMaximumSize(1500, 900)
-    self.itemDataManagerGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    ## Item Manager
 
     # CSV-File label and selection button
-    _csvFileSelectionLabel = QLabel('CSV File:')
-    _csvFileSelectionLabel.setFont(QFont('Ubuntu Sans', 12))
-    _csvFileSelectionLabel.setMaximumSize(100, 20)
+    _itemCsvFileSelectionLabel = QLabel('CSV File:')
+    _itemCsvFileSelectionLabel.setFont(QFont('Ubuntu Sans', _fontSizeNormal))
+    _itemCsvFileSelectionLabel.setMaximumSize(70, 20)
 
-    self.csvFileSelectionButton = QPushButton("Choose CSV Input File")
-    self.csvFileSelectionButton.setMaximumWidth(210)
-    self.csvFileSelectionButton.clicked.connect(self.handleCsvFileSelectionButton)
+    self.itemCsvFileSelectionButton = QPushButton("Open CSV File")
+    self.itemCsvFileSelectionButton.setMinimumWidth(150)
+    self.itemCsvFileSelectionButton.clicked.connect(self.handleItemCsvFileSelectionButton)
 
     # CSV-File display label
-    self.csvFileDisplayLabel = QLabel(self.currentImportCsvFilePath)
-    self.csvFileDisplayLabel.setFont(QFont('Ubuntu Sans', 7))
-    self.csvFileDisplayLabel.setMinimumSize(300, 10)
+    self.itemCsvFileDisplayLabel = QLabel(f'({self.shortenImportFilePath(self.currentItemCsvFilePath)})')
+    self.itemCsvFileDisplayLabel.setFont(QFont('Ubuntu Sans', _fontSizeSmall))
+    self.itemCsvFileDisplayLabel.setMinimumSize(450, 10)
 
     # CSV import button
-    self.csvImportButton = QPushButton("Import CSV")
-    self.csvImportButton.setMinimumWidth(150)
-    self.csvImportButton.clicked.connect(self.handleCsvImportButton)
+    self.itemCsvImportButton = QPushButton("Import CSV")
+    self.itemCsvImportButton.setMinimumWidth(150)
+    self.itemCsvImportButton.setMaximumWidth(150)
+    self.itemCsvImportButton.clicked.connect(self.handleItemCsvImportButton)
 
     # Save to db button
-    self.saveToDbButton = QPushButton("Save To Database")
-    self.saveToDbButton.setMinimumWidth(150)
-    self.saveToDbButton.clicked.connect(self.handleSaveToDbButton)
+    self.itemSaveToDbButton = QPushButton("Save To Database")
+    self.itemSaveToDbButton.setMinimumWidth(150)
+    self.itemSaveToDbButton.setMaximumWidth(150)
+    self.itemSaveToDbButton.clicked.connect(self.handleItemSaveToDbButton)
 
     # Export to json button
-    self.exportToJsonButton = QPushButton("Export To JSON")
-    self.exportToJsonButton.setMinimumWidth(100)
-    self.exportToJsonButton.clicked.connect(self.handleExportToJsonButton)
+    self.itemExportFromDbToJsonButton = QPushButton("Export From DB To JSON")
+    self.itemExportFromDbToJsonButton.setMinimumWidth(200)
+    self.itemExportFromDbToJsonButton.setMaximumWidth(200)
+    self.itemExportFromDbToJsonButton.clicked.connect(self.handleItemExportFromDbToJsonButton)
 
     # Copy export to foundry module dir
-    self.copyToFoundryModuleDirButton = QPushButton("Copy To Module Dir")
-    self.copyToFoundryModuleDirButton.setMinimumWidth(150)
-    self.copyToFoundryModuleDirButton.clicked.connect(self.handleCopyToFoundryModuleDirButton)
+    self.itemCopyToFoundryModuleDirButton = QPushButton("Copy To Module Dir")
+    self.itemCopyToFoundryModuleDirButton.setMinimumWidth(170)
+    self.itemCopyToFoundryModuleDirButton.setMaximumWidth(170)
+    self.itemCopyToFoundryModuleDirButton.clicked.connect(self.handleItemCopyToFoundryModuleDirButton)
 
-    # Finish main GroupBox
+    # Group Box
+    self.itemDataManagerGroupBox = QGroupBox()
+    self.itemDataManagerGroupBox.setTitle('Items')
+    self.itemDataManagerGroupBox.setMinimumSize(_groupBoxMinWidth, _groupBoxMinHeight)
+    self.itemDataManagerGroupBox.setMaximumSize(_groupBoxMaxWidth, _groupBoxMaxHeight)
+    self.itemDataManagerGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+
+    # Helper layouts
+    _itemCsvFileDisplayLayout = QHBoxLayout()
+    _itemCsvFileDisplayLayout.addWidget(_itemCsvFileSelectionLabel)
+    _itemCsvFileDisplayLayout.addWidget(self.itemCsvFileDisplayLabel)
+
+    # Group box layout
     self.itemDataManagerGroupBoxLayout = QGridLayout()
     self.itemDataManagerGroupBoxLayout.setSpacing(20)
     self.itemDataManagerGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
     self.itemDataManagerGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.itemDataManagerGroupBoxLayout.addWidget(_csvFileSelectionLabel, 0, 0)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.csvFileSelectionButton, 0, 1)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.csvFileDisplayLabel, 1, 0, 1, 2)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.csvImportButton, 3, 0)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.saveToDbButton, 4, 0)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.exportToJsonButton, 4, 1)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.copyToFoundryModuleDirButton, 5, 0)
-
+    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCsvFileSelectionButton, 0, 0)
+    self.itemDataManagerGroupBoxLayout.addLayout(_itemCsvFileDisplayLayout, 0, 1, 1, 3)
+    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCsvImportButton, 1, 0)
+    self.itemDataManagerGroupBoxLayout.addWidget(self.itemSaveToDbButton, 1, 1)
+    self.itemDataManagerGroupBoxLayout.addWidget(self.itemExportFromDbToJsonButton, 1, 2)
+    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCopyToFoundryModuleDirButton, 1, 3)
     self.itemDataManagerGroupBox.setLayout(self.itemDataManagerGroupBoxLayout)
+
+    ## Actor Manager
+
+    # CSV-File label and selection button
+    _actorCsvFileSelectionLabel = QLabel('CSV File:')
+    _actorCsvFileSelectionLabel.setFont(QFont('Ubuntu Sans', _fontSizeNormal))
+    _actorCsvFileSelectionLabel.setMaximumSize(70, 20)
+
+    self.actorCsvFileSelectionButton = QPushButton("Open CSV File")
+    self.actorCsvFileSelectionButton.setMinimumWidth(150)
+    self.actorCsvFileSelectionButton.clicked.connect(self.handleActorCsvFileSelectionButton)
+
+    # CSV-File display label
+    self.actorCsvFileDisplayLabel = QLabel(self.shortenImportFilePath(self.currentActorCsvFilePath))
+    self.actorCsvFileDisplayLabel.setFont(QFont('Ubuntu Sans', _fontSizeSmall))
+    self.actorCsvFileDisplayLabel.setMinimumSize(450, 10)
+
+    # CSV import button
+    self.actorCsvImportButton = QPushButton("Import CSV")
+    self.actorCsvImportButton.setMinimumWidth(150)
+    self.actorCsvImportButton.setMaximumWidth(150)
+    self.actorCsvImportButton.clicked.connect(self.handleActorCsvImportButton)
+
+    # Save to db button
+    self.actorSaveToDbButton = QPushButton("Save To Database")
+    self.actorSaveToDbButton.setMinimumWidth(150)
+    self.actorSaveToDbButton.setMaximumWidth(150)
+    self.actorSaveToDbButton.clicked.connect(self.handleActorSaveToDbButton)
+
+    # Export to json button
+    self.actorExportFromDbToJsonButton = QPushButton("Export From DB To JSON")
+    self.actorExportFromDbToJsonButton.setMinimumWidth(200)
+    self.actorExportFromDbToJsonButton.setMaximumWidth(200)
+    self.actorExportFromDbToJsonButton.clicked.connect(self.handleActorExportFromDbToJsonButton)
+
+    # Copy export to foundry module dir
+    self.actorCopyToFoundryModuleDirButton = QPushButton("Copy To Module Dir")
+    self.actorCopyToFoundryModuleDirButton.setMinimumWidth(170)
+    self.actorCopyToFoundryModuleDirButton.setMaximumWidth(170)
+    self.actorCopyToFoundryModuleDirButton.clicked.connect(self.handleActorCopyToFoundryModuleDirButton)
+
+    # Main Group Box
+    self.actorDataManagerGroupBox = QGroupBox()
+    self.actorDataManagerGroupBox.setTitle('Actors')
+    self.actorDataManagerGroupBox.setMinimumSize(_groupBoxMinWidth, _groupBoxMinHeight)
+    self.actorDataManagerGroupBox.setMaximumSize(_groupBoxMaxWidth, _groupBoxMaxHeight)
+    self.actorDataManagerGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+
+    # Helper layouts
+    _actorCsvFileDisplayLayout = QHBoxLayout()
+    _actorCsvFileDisplayLayout.addWidget(_actorCsvFileSelectionLabel)
+    _actorCsvFileDisplayLayout.addWidget(self.actorCsvFileDisplayLabel)
+
+    # Finish actor GroupBox
+    self.actorDataManagerGroupBoxLayout = QGridLayout()
+    self.actorDataManagerGroupBoxLayout.setSpacing(20)
+    self.actorDataManagerGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.actorDataManagerGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCsvFileSelectionButton, 0, 0)
+    self.actorDataManagerGroupBoxLayout.addLayout(_actorCsvFileDisplayLayout, 0, 1, 1, 3)
+    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCsvImportButton, 1, 0)
+    self.actorDataManagerGroupBoxLayout.addWidget(self.actorSaveToDbButton, 1, 1)
+    self.actorDataManagerGroupBoxLayout.addWidget(self.actorExportFromDbToJsonButton, 1, 2)
+    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCopyToFoundryModuleDirButton, 1, 3)
+    self.actorDataManagerGroupBox.setLayout(self.actorDataManagerGroupBoxLayout)
 
     # Finish setup
     _mainGridLayout = QGridLayout()
-    _mainGridLayout.setSpacing(30)
+    _mainGridLayout.setSpacing(20)
     _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    _mainGridLayout.addWidget(_headerLabel, 1, 0)
-    _mainGridLayout.addWidget(self.itemDataManagerGroupBox, 2, 0)
+    _mainGridLayout.addWidget(_headerLabel, 0, 0)
+    _mainGridLayout.addWidget(self.itemDataManagerGroupBox, 1, 0)
+    _mainGridLayout.addWidget(self.actorDataManagerGroupBox, 2, 0)
     self.setLayout(_mainGridLayout)
 
-  def handleCopyToFoundryModuleDirButton(self):
-    _fromPath = f'{self.jsonExportPath}/*'
+  def handleActorCsvFileSelectionButton(self):
+    _fileDialog = QFileDialog()
+    _fileDialog.setNameFilter('*.csv *.json')
+    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+    _filename = []
+
+    if _fileDialog.exec_():
+      _filename = _fileDialog.selectedFiles()
+      self.currentActorCsvFilePath = _filename[0]
+      self.actorCsvFileDisplayLabel.setText(f'({self.shortenImportFilePath(self.currentActorCsvFilePath)})')
+
+  def handleActorCsvImportButton(self):
+    if not self.currentActorCsvFilePath:
+      logging.info('No actor csv file selected!')
+      return
+
+    self.actorData.clear()
+
+    # Read csv and store in list as dict per row
+    _actorCount = 0
+    logging.info(f'Importing actors from {self.shortenImportFilePath(self.currentActorCsvFilePath)}')
+    with open(file=self.currentActorCsvFilePath, mode='r') as csvFile:
+      _csvData = csv.DictReader(csvFile, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
+      for _row in _csvData:
+        self.actorData.append(_row)
+        _actorCount += 1
+
+    logging.info(f'Imported {_actorCount} items.')
+
+  def handleActorSaveToDbButton(self):
+    pass
+
+  def handleActorCopyToFoundryModuleDirButton(self):
+    pass
+
+  def handleItemCopyToFoundryModuleDirButton(self):
+    _fromPath = f'{self.jsonExportPath}'
     _toPath = f'{apc.FOUNDRY_INSTALL_DATA_PATH}/{apc.FOUNDRY_MODULE_ROOT_PATH}/{apc.OSR_EQUIPMENT_PACK_NAME}/data/json'
-    subprocess.run(f'rm -r {_toPath}/*')
-    subprocess.run(f'cp {_fromPath}/* {_toPath}')
 
+    shutil.rmtree(_toPath)
+    shutil.copytree(_fromPath, _toPath)
 
-  def handleExportToJsonButton(self):
-    # Delete all files in target directory
+  def handleActorExportFromDbToJsonButton(self):
+      self.exportActorsToJson()
 
+  def handleItemExportFromDbToJsonButton(self):
+      self.exportEquipmentToJson()
+
+  def handleItemSaveToDbButton(self):
+    _itemTypeIDs = db.query(statement='select ID, NAME from ITEM_TYPE')
+    _itemTypeDict = {}
+    try:
+      for _typeID in _itemTypeIDs:
+        _itemTypeDict[_typeID['NAME']] = _typeID['ID']
+    except IndexError:
+      logging.info('There were no item type ids found in the database table ITEM_TYPE. No data has been written to the database.')
+      return
+
+    _itemTableColumnString = 'NAME, TYPE, CATEGORY, WEIGHT, COST, ATTRIBUTES, AC, DAMAGE, RANGE_SHORT, RANGE_MEDIUM, RANGE_LONG, DESCRIPTION, IMAGE, TO_FOUNDRY'
+
+    # Get current max ID from ITEM table
+    _currentMaxIdDb = db.query('select SEQ as ID from SQLITE_SEQUENCE where NAME = ?', args=('ITEM', ), one=True)
+    _currentMaxId = 0
+    if _currentMaxIdDb['ID']:
+      _currentMaxId = int(_currentMaxIdDb['ID'])
+
+    for _item in self.itemData:
+      _itemDataDb = db.query(statement='select ID, NAME from ITEM where NAME = ?', args=(_item['NAME'],), one=True)
+      _foundryItemKey = self.getUniqueItemKey(_item['NAME'])
+
+      _itemRangeShort = None if not _item['RANGE_SHORT'] else _item['RANGE_SHORT']
+      _itemRangeMedium = None if not _item['RANGE_MEDIUM'] else _item['RANGE_MEDIUM']
+      _itemRangeLong = None if not _item['RANGE_LONG'] else _item['RANGE_LONG']
+      _itemAC = None if not _item['AC'] else _item['AC']
+      _itemDamage = None if not _item['DAMAGE'] else _item['DAMAGE']
+
+      if _itemDataDb:
+        db.query(statement='update ITEM set CATEGORY=?, WEIGHT=?, COST=?, ATTRIBUTES=?, AC=?, DAMAGE=?, RANGE_SHORT=?, RANGE_MEDIUM=?, RANGE_LONG=?, DESCRIPTION=?, IMAGE=? where ID = ?',
+                 args=(_item['CATEGORY'], _item['WEIGHT'], _item['COST'], _item['ATTRIBUTES'], _itemAC, _itemDamage, _itemRangeShort, _itemRangeMedium, _itemRangeLong, _item['DESCRIPTION'], _item['IMAGE'], _itemDataDb['ID']), commit=False)
+      else:
+        _args = (_item['NAME'], _itemTypeDict[_item['TYPE']], _item['CATEGORY'], _item['WEIGHT'], _item['COST'], _item['ATTRIBUTES'], _itemAC, _itemDamage, _itemRangeShort, _itemRangeMedium, _itemRangeLong, _item['DESCRIPTION'], _item['IMAGE'], True)
+        db.insert(statement=f'insert into ITEM({_itemTableColumnString}) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', args=_args)
+
+        _currentMaxId += 1
+        db.insert(statement=f'insert into FOUNDRY_ITEM_KEYS(ITEM_ID, ITEM_NAME, KEY) values(?, ?, ?)', args=(_currentMaxId, _item['NAME'], _foundryItemKey))
+
+    db.commitChanges()
+
+  def handleItemCsvFileSelectionButton(self):
+    _fileDialog = QFileDialog()
+    _fileDialog.setNameFilter('*.csv *.json')
+    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+    _filename = []
+
+    if _fileDialog.exec_():
+      _filename = _fileDialog.selectedFiles()
+      self.currentItemCsvFilePath = _filename[0]
+      self.itemCsvFileDisplayLabel.setText(f'({self.shortenImportFilePath(self.currentItemCsvFilePath)})')
+
+  def handleItemCsvImportButton(self):
+    if not self.currentItemCsvFilePath:
+      logging.info('No equipment csv file selected!')
+      return
+
+    self.itemData.clear()
+
+    # Read csv and store in list as dict per row
+    _itemCount = 0
+    logging.info(f'Importing items from {self.currentItemCsvFilePath}')
+    with open(file=self.currentItemCsvFilePath, mode='r') as csvFile:
+      _csvData = csv.DictReader(csvFile, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
+      for _row in _csvData:
+        self.itemData.append(_row)
+        _itemCount += 1
+
+    # Normalized attribute list for all items to save redundant code
+    for _item in self.itemData:
+      _rawAttributeList = _item['ATTRIBUTES'].strip().split(';')
+      _attributeDict = {}
+
+      for _attribute in _rawAttributeList:
+        if ':' in _attribute:
+          _parts = _attribute.split(':')
+          _attributeDict[_parts[0].replace(' ', '').upper()] = _parts[1].replace(',', ', ').strip()
+        else:
+          _attributeDict[_attribute.replace(' ', '').upper()] = True
+
+      _item['ATTRIBUTES'] = _attributeDict
+
+    logging.info(f'Imported {_itemCount} items.')
+
+  def removeFiles(self, path, removeSubDirs=False):
     _removedFilesCount = 0
-    for _fileName in os.listdir(self.jsonExportPath):
-      logging.info(f'Removing files from: {os.path.join(self.jsonExportPath, _fileName)}')
-      for _fileName2 in os.listdir(os.path.join(self.jsonExportPath, _fileName)):
-        _filePath = os.path.join(self.jsonExportPath, _fileName, _fileName2)
-        if os.path.isfile(_filePath):
-          os.remove(_filePath)
-          _removedFilesCount += 1
+    logging.info(f'Removing files from: {path}')
+    for _fileName in os.listdir(path):
+      _filePath = os.path.join(path, _fileName)
+      if not removeSubDirs and not os.path.isfile(_filePath):
+        continue
+      os.remove(_filePath)
+      _removedFilesCount += 1
 
     logging.info(f'Removed {_removedFilesCount} files')
 
-    # Set necessary config values and counters
+
+  def exportActorsToJson(self):
+    # Read json template and store empty version for reset
+    _jsonActorTemplateEmpty = None
+
+    _importPath = f'{apc.ROOT_INPUT_PATH}/actors/json'
+    with open(Path(_importPath) / 'foundry_ose_actor_template.json', mode='r') as file:
+      _jsonActorTemplateEmpty = json.load(file)
+
+    _jsonTemplate = None
+    _actorList = []
+    for _actor in self.actorData:
+      _jsonTemplate = copy.deepcopy(_jsonActorTemplateEmpty)
+      _jsonTemplate['name'] = _actor['NAME']
+      _jsonTemplate['system']['details']['notes'] = f'Race: {_actor['RACE']}'
+      _class = _actor['CLASS']
+      _jsonTemplate['system']['details']['class'] = _class
+      _jsonTemplate['system']['details']['alignment'] = _actor['ALIGNMENT']
+
+      # Level
+      _level = int(_actor['LEVEL'])
+      _jsonTemplate['system']['details']['level'] = _level
+
+      # AC/AAC
+      _jsonTemplate['system']['ac']['value'] = int(_actor['AC']) if _actor['AC'] else 9
+      _jsonTemplate['system']['aac']['value'] = 19 - int(_actor['AC']) if _actor['AC'] else 10
+
+      # HP
+      _hp = int(_actor['HP'])
+      _jsonTemplate['system']['hp']['value'] = _hp
+      _jsonTemplate['system']['hp']['max'] = _hp
+
+      # HD
+      _hd = ''
+      _classUpper = _class.upper()
+      if _classUpper in ('ACROBAT', 'ASSASSIN', 'ILLUSIONIST', 'MAGIC-USER', 'THIEF'):
+        _hd = 'd4'
+      elif _classUpper in ('BARD', 'CLERIC', 'DRUID'):
+        _hd = 'd6'
+      elif _classUpper in ('BARBARIAN', 'FIGHTER', 'KNIGHT', 'PALADIN', 'RANGER'):
+        _hd = 'd8'
+
+      _hdMultiplier = _level if _level <= 8 else 9
+      _hd = f'{_hdMultiplier}{_hd}'
+
+      if _level > 9:
+        _levelAbove9 = _level - 9
+        _levelAbove9Bonus = 0
+        if _classUpper in ('MAGIC-USER', 'CLERIC', 'DRUID', 'ILLUSIONIST'):
+          _levelAbove9Bonus = 1
+        elif _classUpper in ('ACROBAT', 'ASSASSIN', 'BARD', 'FIGHTER', 'KNIGHT', 'PALADIN', 'RANGER', 'THIEF'):
+          _levelAbove9Bonus = 2
+        elif _classUpper == 'BARBARIAN':
+          _levelAbove9Bonus = 3
+
+        _hd = f'{_hd} + {_levelAbove9 * _levelAbove9Bonus}'
+
+      _jsonTemplate['system']['hp']['hd'] = _hd
+
+      # THAC0
+      _thac0 = int(_actor['THAC0'])
+      _jsonTemplate['system']['thac0']['value'] = _thac0
+      _jsonTemplate['system']['thac0']['bba'] = 19 - _thac0
+
+      # Ability Scores
+      _jsonTemplate['system']['scores']['str']['value'] = _actor['STR']
+      _jsonTemplate['system']['scores']['int']['value'] = _actor['INT']
+      _jsonTemplate['system']['scores']['wis']['value'] = _actor['WIS']
+      _jsonTemplate['system']['scores']['dex']['value'] = _actor['DEX']
+      _jsonTemplate['system']['scores']['con']['value'] = _actor['CON']
+      _jsonTemplate['system']['scores']['cha']['value'] = _actor['CHA']
+
+      # Saving Throws
+      _jsonTemplate['system']['saves']['death']['value'] = _actor['S_DP']
+      _jsonTemplate['system']['saves']['wand']['value'] = _actor['S_W']
+      _jsonTemplate['system']['saves']['paralysis']['value'] = _actor['S_P']
+      _jsonTemplate['system']['saves']['breath']['value'] = _actor['S_B']
+      _jsonTemplate['system']['saves']['spell']['value'] = _actor['S_SRS']
+
+      _actorList.append(copy.deepcopy(_jsonTemplate))
+
+    ## Delete all files in target directory
+    _exportPath = Path(apc.JSON_EXPORT_PATH) / 'actors'
+    _exportPath.mkdir(exist_ok=True)
+    self.removeFiles(path=_exportPath, removeSubDirs=False)
+
+    for _actor in _actorList:
+      # Define export dir
+
+      # Write to json file
+      _jsonOutfileName = f'{_actor['name'].lower().replace(' ', '_')}.json'
+      with open(file=Path(_exportPath) / _jsonOutfileName, mode='w') as _jsonFile:
+        json.dump(obj=_actor, fp=_jsonFile, indent=2)
+
+  def exportEquipmentToJson(self):
+    ## Set necessary config values and counters
     _imagePath = apc.OSR_EQUIPMENT_IMAGE_PATH
     _imgExtension = 'webp'
     _itemCount = 0
 
-    # Gather item images
+    ## Gather item images
     _itemImages = []
     for _fileName in os.listdir(self.imageImportPath):
       # Cut away extension and license info
       for _fileName2 in os.listdir(os.path.join(self.imageImportPath, _fileName)):
-        _name = _fileName2[0:_fileName2.rindex('.')][0:_fileName2.rindex('_')].replace('_', ' ')
+        _name = ''
+        try:
+          _name = _fileName2[0:_fileName2.rindex('.')][0:_fileName2.rindex('_')].replace('_', ' ')
+        except ValueError:
+          logging.info(f'Image {_fileName2} could not be imported!')
+          logging.info(f'Item import has been aborted!')
+          return
+
         _itemImages.append({'NAME': _name, 'FILENAME': os.path.join(_fileName, _fileName2)})
 
-    ######################
-    ### Export Weapons ###
-    ######################
+    ## Fill item json
 
     # Read json template and store empty version for reset
     _jsonItemWeaponTemplateEmpty = None
     _jsonItemArmorTemplateEmpty = None
     _jsonItemEquipmentTemplateEmpty = None
 
-    with open(Path(self.jsonImportPath) / 'foundry_ose_item_weapon_template.json', mode='r') as file:
+    _importPath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/json'
+
+    with open(Path(_importPath) / 'foundry_ose_item_weapon_template.json', mode='r') as file:
       _jsonItemWeaponTemplateEmpty = json.load(file)
-    with open(Path(self.jsonImportPath) / 'foundry_ose_item_armor_template.json', mode='r') as file:
+    with open(Path(_importPath) / 'foundry_ose_item_armor_template.json', mode='r') as file:
       _jsonItemArmorTemplateEmpty = json.load(file)
-    with open(Path(self.jsonImportPath) / 'foundry_ose_item_equipment_template.json', mode='r') as file:
+    with open(Path(_importPath) / 'foundry_ose_item_equipment_template.json', mode='r') as file:
       _jsonItemEquipmentTemplateEmpty = json.load(file)
 
     _jsonTemplate = None
+    _itemList = {'ARMOR': [], 'WEAPON': [], 'EQUIPMENT': []}
     for _item in self.itemData:
       _inputSubDir = ''
+      _itemType = ''
       if _item['TYPE'].upper() == 'WEAPON':
         _jsonTemplate = copy.deepcopy(_jsonItemWeaponTemplateEmpty)
-      if _item['TYPE'].upper() == 'ARMOR':
+        _itemType = 'WEAPON'
+      elif _item['TYPE'].upper() == 'ARMOR':
         _jsonTemplate = copy.deepcopy(_jsonItemArmorTemplateEmpty)
-      if _item['TYPE'].upper() in ('EQUIPMENT', 'AMMUNITION'):
+        _itemType = 'ARMOR'
+      elif _item['TYPE'].upper() in ('EQUIPMENT', 'AMMUNITION'):
         _jsonTemplate = copy.deepcopy(_jsonItemEquipmentTemplateEmpty)
+        _itemType = 'EQUIPMENT'
 
       ## General
       _jsonTemplate['name'] = _item['NAME']
@@ -1008,35 +1314,47 @@ class ItemDataManagerWidget(QWidget):
       # Default values
       _jsonTemplate['system']['quantity']['value'] = 1
 
+      # AC
+      if _itemType == 'ARMOR' and _item['AC']:
+        _ac = int(_item['AC'])
+        _jsonTemplate['system']['ac']['value'] = _ac
+        _jsonTemplate['system']['aac']['value'] = 19 - _ac if _item['CATEGORY'].upper() != 'SHIELD' else _ac
+
       for _key in _item['ATTRIBUTES']:
-        if _key == 'SLOW':
+        if _key.upper() == 'SLOW':
           if _item['TYPE'].upper() == 'ARMOR':
             _jsonTemplate['system']['slow'] = False
           _jsonTemplate['system']['slow'] = True
-        if _key == 'MISSILE':
+        if _key.upper() == 'MISSILE':
+          _jsonTemplate['system']['missile'] = True
           _jsonTemplate['system']['range']['short'] = int(_item['RANGE_SHORT'].strip())
           _jsonTemplate['system']['range']['medium'] = int(_item['RANGE_MEDIUM'])
           _jsonTemplate['system']['range']['long'] = int(_item['RANGE_LONG'])
-        if _key == 'MELEE':
+        if _key.upper() == 'MELEE':
           _jsonTemplate['system']['melee'] = True
-        if _key == 'QUANTITY':
+        if _key.upper() == 'QUANTITY':
           _jsonTemplate['system']['quantity']['value'] = _item['ATTRIBUTES'][_key]
           _jsonTemplate['system']['quantity']['max'] = _item['ATTRIBUTES'][_key]
 
         # Weapon specific
-        if _item['TYPE'].upper() == 'WEAPON':
+        if _itemType == 'WEAPON':
           _jsonTemplate['system']['damage'] = _item['DAMAGE'].strip()
+
         # Armor specific
-        if _item['TYPE'].upper() == 'ARMOR':
-          # Usually signifies that the item is an actual piece of armor ('Chain Mail', 'Bascinet', 'Boiled Leather', etc.)
-          if _key == 'CLASS':
+        if _itemType == 'ARMOR':
+          # Usually signifies that the item is an actual piece of armor ('Chain Mail', 'Bascinet', 'Boiled Leather', etc.) and not a shield
+          if _item['CATEGORY'].upper() == 'SHIELD':
+            _jsonTemplate['system']['type'] = 'shield'
+          elif _key.upper() == 'CLASS':
             _jsonTemplate['system']['type'] = _item['ATTRIBUTES'][_key].lower()
-        # Weapon specific
 
         # Equipment specific
-        if _item['TYPE'].upper() == 'EQUIPMENT':
+        if _itemType == 'EQUIPMENT':
           if _item['CATEGORY'].upper() == 'CONTAINER':
             _jsonTemplate['type'] = 'container'
+
+      if _item['NAME'] == 'Maul':
+        pass
 
       # Tags
       self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'BLUNT', 'Blunt', 'Blunt')
@@ -1045,27 +1363,12 @@ class ItemDataManagerWidget(QWidget):
       self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'REACH', 'Reach', 'Reach')
       self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'RELOAD', 'Reload', 'Reload')
       self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'SPLASH', 'Splash', 'Splash')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate , _item['ATTRIBUTES'], 'TWO-HANDED', 'Two-Handed', 'Two-Handed')
+      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'TWO-HANDED', 'Two-Handed', 'Two-Handed')
 
       # Define export dir
-      _exportSubDir = ''
-      if _item['TYPE'].upper() == 'WEAPON':
-        _exportSubDir = 'osr-weapons'
-      if _item['TYPE'].upper() == 'ARMOR':
-        _exportSubDir = 'osr-armor'
-      if _item['TYPE'].upper() in ('EQUIPMENT', 'AMMUNITION'):
-        _exportSubDir = 'osr-equipment'
-
-      # Images
-      for _image in _itemImages:
-        if _item['TYPE'].upper() in ('ARMOR', 'WEAPON'):
-          if _item['NAME'].lower() == _image['NAME']:
-            _jsonTemplate['img'] = f'{apc.OSR_EQUIPMENT_IMAGE_PATH}/{_image['FILENAME']}'
-            break
-        else:
-          if _item['NAME'].lower().find(_image['NAME']) != -1:
-            _jsonTemplate['img'] = f'{apc.OSR_EQUIPMENT_IMAGE_PATH}/{_image['FILENAME']}'
-            break
+      _imageInputSubdir = f'{_itemType.lower()}'
+      _imageInputSubdir = _imageInputSubdir if _itemType != 'WEAPON' else f'{_imageInputSubdir}s'
+      _jsonTemplate['img'] = f'{apc.OSR_EQUIPMENT_IMAGE_PATH}/{_imageInputSubdir}/{_item['IMAGE']}' if _item['IMAGE'] else ''
 
       # Foundry specific
       _jsonTemplate['_id'] = self.getUniqueItemKey(_item['NAME'])
@@ -1074,74 +1377,30 @@ class ItemDataManagerWidget(QWidget):
       _jsonTemplate['_stats']['createdTime'] = _nowInMillis
       _jsonTemplate['_stats']['modifiedTime'] = _nowInMillis
 
-      # Write to json file
-      _jsonOutfileName = f'{str(_jsonTemplate['name']).lower().translate(str.maketrans('', '', ".'!@#$%^&*()+,;:")).replace(' ', '_')}_{_jsonTemplate['_id']}.json'
-      with open(file=Path(self.jsonExportPath) / _exportSubDir /  _jsonOutfileName, mode='w') as _jsonFile:
-        json.dump(obj=_jsonTemplate, fp=_jsonFile, indent=2)
+      _itemList[_itemType].append(copy.deepcopy(_jsonTemplate))
+
+    ## Export item info to json files
+    for _type in _itemList.keys():
+      # Define export dir
+      _exportSubDir = f'osr-{_type.lower()}'
+      _exportSubDir = _exportSubDir if _type != 'WEAPON' else f'{_exportSubDir}s'
+      _exportPath = Path(apc.JSON_EXPORT_PATH) / 'foundry_module_osr_armor_weapons_equipment' /  _exportSubDir
+      _exportPath.mkdir(exist_ok=True)
+
+      ## Delete all files in target directory
+      self.removeFiles(path=_exportPath, removeSubDirs=False)
+
+      for _item in _itemList[_type]:
+        # Write to json file
+        _jsonOutfileName = f'{str(_item['name']).lower().translate(str.maketrans('', '', ".'!@#$%^&*()+,;:")).replace(' ', '_')}_{_item['_id']}.json'
+        with open(file=Path(_exportPath) / _jsonOutfileName, mode='w') as _jsonFile:
+          json.dump(obj=_item, fp=_jsonFile, indent=2)
 
     # Write item keys to database
     self.writeItemKeysToDataBase()
 
-
-  def handleSaveToDbButton(self):
-    _itemParameterTypeId = db.getGameParameterTypeId(parameterName='ITEM')
-    _dbResult = db.query(statement='select max(ID) as ID from GAME_PARAMETER where TYPE = ?', args=(_itemParameterTypeId,), one=True)
-
-    _currentId = int(_dbResult['ID']) if _dbResult['ID'] else 0
-    _newId = _currentId + 1
-
-    for _type in self.itemData.keys():
-      _itemTypeParameterTypeId = db.getGameParameterTypeId(parameterName='ITEM_TYPE')
-      _itemTypeId = db.query('select ID from GAME_PARAMETER where TYPE = ? and upper(VALUE_1) = ? and VALUE_2 = 0', (_itemTypeParameterTypeId, _type), one=True)['ID']
-      for _row in self.itemData[_type]:
-        _itemCategoryId = db.query('select ID from GAME_PARAMETER where TYPE = ? and upper(VALUE_1) = ? and VALUE_2 = 1', (_itemTypeParameterTypeId, _row['CATEGORY'].upper()), one=True)
-        if _itemCategoryId:
-          _itemTypeId = _itemCategoryId['ID']  if _itemCategoryId['ID'] else _itemTypeId['ID']
-
-        db.insert(f'insert into GAME_PARAMETER(TYPE, ID, VALUE_1, VALUE_2, VALUE_3, VALUE_4, VALUE_5) values(?, ?, ?, ?, ?, ?, ?)', (_itemParameterTypeId, _newId, _row['NAME'], str(_itemTypeId), _row['CATEGORY'], _row['WEIGHT'], _row['COST']))
-        _newId +=1
-
-    db.commitChanges()
-
-  def handleCsvFileSelectionButton(self):
-    _fileDialog = QFileDialog()
-    _fileDialog.setNameFilter('*.csv *.json')
-    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-    _filename = []
-
-    if _fileDialog.exec_():
-      _filename = _fileDialog.selectedFiles()
-      self.currentImportCsvFilePath = _filename[0]
-      self.csvFileDisplayLabel.setText(self.currentImportCsvFilePath)
-
-  def handleCsvImportButton(self):
-    if not self.currentImportCsvFilePath:
-      logging.info('No csv file selected!')
-      return
-
-    # Read csv and store in list as dict per row
-    _itemCount = 0
-    logging.info(f'Importing items from {self.currentImportCsvFilePath}')
-    with open(file=self.currentImportCsvFilePath, mode='r') as csvFile:
-      _csvData = csv.DictReader(csvFile, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
-      for _row in _csvData:
-        self.itemData.append(_row)
-        _itemCount += 1
-
-    # Normalized attribute list for all items to save redundant code
-    for _item in self.itemData:
-      _rawAttributeList = _item['ATTRIBUTES'].strip().split(';')
-      _attributeDict = {}
-      for _attribute in _rawAttributeList:
-        if ':' in _attribute:
-          _parts = _attribute.split(':')
-          _attributeDict[_parts[0].replace(' ', '').upper()] = _parts[1].replace(',', ', ').strip()
-        else:
-          _attributeDict[_attribute.replace(' ', '')] = True
-
-      _item['ATTRIBUTES'] = _attributeDict
-
-    logging.info(f'Imported {_itemCount} items.')
+  def shortenImportFilePath(self, path):
+    return path if len(path) < 50 else f'{path[0:30]}...{path[len(path)-31:len(path)]}'
 
   def writeItemKeysToDataBase(self):
     _currentItemKeys = db.query(statement='select ITEM_NAME, KEY from FOUNDRY_ITEM_KEYS')
@@ -1163,7 +1422,7 @@ class ItemDataManagerWidget(QWidget):
     db.commitChanges()
 
   def loadItemKeysFromDatabase(self):
-    _itemKeys = db.query(statement='select ITEM_NAME, KEY from FOUNDRY_ITEM_KEYS')
+    _itemKeys = db.query(statement='select ITEM_ID, ITEM_NAME, KEY from FOUNDRY_ITEM_KEYS')
     if not _itemKeys:
       return
 
@@ -1172,7 +1431,7 @@ class ItemDataManagerWidget(QWidget):
 
   def createAndAddAttributeItemJsonTag(self, jsonData, attributeList=None, name=None, title=None, value=None):
     if attributeList:
-      if name not in attributeList:
+      if name.upper() not in attributeList:
         return
 
     _tag = copy.copy(self.foundryItemTagTemplate)
@@ -1183,21 +1442,11 @@ class ItemDataManagerWidget(QWidget):
   def generateUniqueItemKey(self, itemName):
     _keyValid = False
     _key = ''
+    _characterSet = f'0123456789ABCEDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
     while not _keyValid:
-      for i in range(self.itemKeyLength):
-        _isNextDigitNumeric = False if hp.rollDice(1, 2) == 1 else True
-        _nextDigit = ''
-        if _isNextDigitNumeric:
-          _nextDigit = str(hp.rollDice(1, 10) - 1)
-        else:
-          _isNextDigitLowerCase = False if hp.rollDice(1, 2) == 1 else True
-          _asciiStart = 65
-          if _isNextDigitLowerCase:
-            _asciiStart = 97
-          _asciiOffset = hp.rollDice(1, 26) - 1
-          _finalAscii = _asciiStart + _asciiOffset
-          _nextDigit = chr(_finalAscii)
-
+      for _ in range(self.itemKeyLength):
+        _position = hp.rollDice(1, len(_characterSet)) - 1
+        _nextDigit = _characterSet[_position:_position + 1]
         _key += _nextDigit
 
       _keyValid = True
@@ -1214,12 +1463,16 @@ class ItemDataManagerWidget(QWidget):
     return _key
 
   def getUniqueItemKey(self, itemName=''):
-    _itemKeyFromDatabase = db.query(statement='select KEY from FOUNDRY_ITEM_KEYS where ITEM_NAME = ?', args=(itemName,), one=True)
+    _finalItemKey = ''
+    for _key in self.itemKeys:
+      if _key['ITEM_NAME'] == itemName:
+        _finalItemKey = _key['KEY']
+        break
 
-    if _itemKeyFromDatabase:
-      return _itemKeyFromDatabase['KEY']
-    else:
-      return self.generateUniqueItemKey(itemName)
+    if _finalItemKey:
+      return _finalItemKey
+
+    return self.generateUniqueItemKey(itemName)
 
 class GameParameterManager(QWidget):
   def __init__(self):
@@ -1419,7 +1672,6 @@ class GameParameterManager(QWidget):
       self.gameParameterTypeModel.insertRecord(-1, _parameterTypeRecord)
       self.gameParameterTypeModel.submitAll()
 
-
     # Get the parameters id
     _newParameterId = -1
     for i in range(self.gameParameterTypeModel.rowCount()):
@@ -1546,8 +1798,6 @@ class WeatherWidget(QWidget):
     self.weatherOutputPlainText = QPlainTextEdit()
     self.weatherOutputPlainText.setFont(QFont('Consolas', 12))
     self.weatherOutputPlainText.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-
-    # Vbox Layout for boxes and buttons
 
     # Finish weather GroupBox
     self.weatherGroupBoxLayout = QGridLayout()
@@ -1711,14 +1961,13 @@ class WeatherWidget(QWidget):
 
     return _result
 
-
 class Tools(QWidget):
   def __init__(self):
     super().__init__()
 
     self.characterBuilderButton = QPushButton("Character Builder")
     self.dungeonRoomButton = QPushButton("Dungeon Creator")
-    self.itemDataManagerButton = QPushButton("Item Data Manager")
+    self.itemDataManagerButton = QPushButton("Foundry Data Manager")
     self.gameParameterManagerButton = QPushButton("Game Parameter Manager")
     self.weatherButton = QPushButton("Weather")
 
@@ -1726,7 +1975,7 @@ class Tools(QWidget):
     self.defineMenuLayout()
 
     self.characterBuilderWidget = CharacterBuildWidget()
-    self.itemDataManagerWidget = ItemDataManagerWidget()
+    self.itemDataManagerWidget = FoundryDataManagerWidget()
     self.dungeonRoomWidget = DungeonCreatorWidget()
     self.gameParameterManagerWidget = GameParameterManager()
     self.weatherWidget = WeatherWidget()

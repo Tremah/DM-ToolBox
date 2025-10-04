@@ -1,4 +1,5 @@
 import csv
+import logging
 import sqlite3
 
 from PySide6.QtCore import Qt
@@ -24,217 +25,219 @@ from PySide6.QtWidgets import (
   QFormLayout,
   QComboBox,
   QCheckBox,
-  QFileDialog
+  QFileDialog, QTableView, QTextEdit
 )
 
 import database as db
 import qt_wrapper as qtw
+import data_models as dm
 
 
 class CreatureEditorImportWidget(QWidget):
   def __init__(self):
     super().__init__()
 
-    mainGridLayout = QGridLayout()
-    buttonHboxLayout = QHBoxLayout()
-    self.contentTextBox = QPlainTextEdit()
-
-    reviewButton = QPushButton('Review')
-    saveButton = QPushButton('Save')
-    clearButton = QPushButton('Clear')
-    self.reviewTable = qtw.DataTable()
-    self.logList = QListWidget()
-
-    mainGridLayout.setSpacing(30)
-    mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    # Fields
+    self.creatureData = []
 
     headerLabel = QLabel('Import Creatures')
     headerLabel.setFont(QFont('Ubuntu Sans', 14))
-    headerLabel.setMaximumSize(500, 20)
 
+    self.contentTextBox = QPlainTextEdit()
     self.contentTextBox.setPlaceholderText("CSV-data here...")
-    self.contentTextBox.setMinimumSize(1200, 1000)
-    self.contentTextBox.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
-    self.reviewTable.setMinimumSize(1200, 1000)
+    self.reviewTable = QTableWidget()
     self.reviewTable.setAlternatingRowColors(True)
     self.reviewTable.horizontalHeader().setStretchLastSection(True)
-    self.reviewTable.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
-    reviewButton.setMinimumSize(150, 30)
-    reviewButton.clicked.connect(self.readCsv)
-    reviewButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+    _gameSystemComboBoxLabel = QLabel('Game System:')
+    self.gameSystemComboBox = QComboBox()
+    self.gameSystemComboBox.setModel(dm.getDataModels().model('GAME_SYSTEM'))
+    self.gameSystemComboBox.setModelColumn(2)
 
-    saveButton.setMinimumSize(150, 30)
-    saveButton.clicked.connect(self.writeImportToDatabase)
-    saveButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+    _reviewButton = QPushButton('Import And Check')
+    _reviewButton.setMinimumSize(150, 30)
+    _reviewButton.clicked.connect(self.importAndCheckCsv)
+    _reviewButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
-    clearButton.setMinimumSize(150, 30)
-    clearButton.clicked.connect(self.clearTable)
-    clearButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+    _saveButton = QPushButton('Save')
+    _saveButton.setMinimumSize(60, 30)
+    _saveButton.clicked.connect(self.writeImportToDatabase)
+    _saveButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
-    buttonHboxLayout.addWidget(reviewButton)
-    buttonHboxLayout.addWidget(saveButton)
-    buttonHboxLayout.addWidget(clearButton)
-    buttonHboxLayout.addItem(QSpacerItem(5000, 10))
-    buttonHboxLayout.setSpacing(20)
-    buttonHboxLayout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    _clearButton = QPushButton('Clear')
+    _clearButton.setMinimumSize(60, 30)
+    _clearButton.clicked.connect(self.clearTable)
+    _clearButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
 
-    logLabel = QLabel('Log')
-    logLabel.setFont(QFont('Ubuntu Sans', 12))
-    logLabel.setMaximumSize(500, 20)
+    # Helper Layouts
+    _secondRowHBoxLayout = QHBoxLayout()
+    _secondRowHBoxLayout.addWidget(self.contentTextBox)
+    _secondRowHBoxLayout.addWidget(self.reviewTable)
 
-    mainGridLayout.addWidget(headerLabel, 0, 0)
-    mainGridLayout.addWidget(self.contentTextBox, 1, 0)
-    mainGridLayout.addWidget(self.reviewTable, 1, 1)
-    mainGridLayout.addLayout(buttonHboxLayout, 2, 0, 1, 2)
-    mainGridLayout.addWidget(logLabel, 3, 0, 1, 2)
-    mainGridLayout.addWidget(self.logList, 4, 0, 1, 2)
+    _thirdRowHBoxLayout = QGridLayout()
+    _thirdRowHBoxLayout.addWidget(_gameSystemComboBoxLabel, 0, 0)
+    _thirdRowHBoxLayout.addWidget(self.gameSystemComboBox, 0, 1)
+    _thirdRowHBoxLayout.addWidget(_reviewButton, 1, 0)
+    _thirdRowHBoxLayout.addWidget(_saveButton, 1, 1)
+    _thirdRowHBoxLayout.addWidget(_clearButton, 1, 2)
+    _thirdRowHBoxLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 1, 3)
+    _thirdRowHBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-    self.setLayout(mainGridLayout)
+    # Finalize main layout
+    _mainGridLayout = QGridLayout()
+    _mainGridLayout.setSpacing(20)
+    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _mainGridLayout.addWidget(headerLabel, 0, 0)
+    _mainGridLayout.addLayout(_secondRowHBoxLayout, 1, 0)
+    _mainGridLayout.addLayout(_thirdRowHBoxLayout, 2, 0)
+    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 3, 0)
+
+    _mainGridLayout.setRowStretch(0, 0)
+    _mainGridLayout.setRowStretch(1, 2)
+    _mainGridLayout.setRowStretch(2, 0)
+    _mainGridLayout.setRowStretch(3, 1)
+
+    self.setLayout(_mainGridLayout)
 
   def clearTable(self):
     self.contentTextBox.clear()
     self.reviewTable.clear()
     self.reviewTable.setRowCount(0)
     self.reviewTable.setColumnCount(0)
+    self.creatureData.clear()
 
-  def readCsv(self):
-    csvRawData = self.contentTextBox.toPlainText().splitlines()
-    csvRows = csv.DictReader(csvRawData, delimiter=';')
+  def importAndCheckCsv(self):
+    _csvRawData = self.contentTextBox.toPlainText().splitlines()
+    _csvRows = csv.DictReader(_csvRawData, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
 
-    self.reviewTable.setColumnCount(len(csvRows.fieldnames))
-    self.reviewTable.setRowCount(len(csvRawData) - 1)
-    i = 0
+    # Check vs. the game system's data model if all needed columns are present
+    _gameSystemModel = self.gameSystemComboBox.model()
+    _gameSystemId = _gameSystemModel.data(_gameSystemModel.index(self.gameSystemComboBox.currentIndex(), _gameSystemModel.record().indexOf('ID'), self.gameSystemComboBox.rootModelIndex()))
+
+    _creatureProperties = db.query(statement='select PROPERTY from GAME_SYSTEM_X_CREATURE_PROPERTY where GAME_SYSTEM = ?', args=(_gameSystemId,))
+    _columnsInModelButNotInCsvData = []
+    for _property in _creatureProperties:
+      if _property['PROPERTY'] not in _csvRows.fieldnames:
+        _columnsInModelButNotInCsvData.append(_property['PROPERTY'])
+
+    # One or more necessary columns were not found in the imported data
+    if _columnsInModelButNotInCsvData:
+      _columnsStr = ', '.join(_columnsInModelButNotInCsvData)
+      logging.error(f'{_columnsStr} not found in the supplied data.')
+      return
+
     # Set headers
-    for field in csvRows.fieldnames:
+    _i = 0
+    self.reviewTable.setColumnCount(len(_csvRows.fieldnames))
+    for field in _csvRows.fieldnames:
       item = QTableWidgetItem(field)
-      if field == 'CR':
-        self.reviewTable.setColumnWidth(i, 100)
-      else:
-        self.reviewTable.setColumnWidth(i, 200)
-
-      self.reviewTable.setHorizontalHeaderItem(i, item)
-      i = i + 1
+      self.reviewTable.setHorizontalHeaderItem(_i, item)
+      _i = _i + 1
 
     # Prepare Data
-    i = 0
-    j = 0
-    for row in csvRows:
-      for attrib in row:
-        item = QTableWidgetItem(row[attrib])
-        if attrib == 'CR':
-          item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.reviewTable.setItem(i, j, item)
-        j += 1
-      i += 1
-      j = 0
+    for _row in _csvRows:
+      self.creatureData.append(_row)
+
+    # Insert into review table
+    _i = 0
+    _j = 0
+    self.reviewTable.setRowCount(len(self.creatureData))
+    for _creature in self.creatureData:
+      for attrib in _creature:
+        item = QTableWidgetItem(_creature[attrib])
+        self.reviewTable.setItem(_i, _j, item)
+        _j += 1
+      _i += 1
+      _j = 0
 
     self.reviewTable.show()
 
   def writeImportToDatabase(self):
-    _nameColumn = 0
-    _typeColumn = 1
-    _crColumn = 2
-    _alignmentColumn = 3
-    _environmentColumn = 4
-    _sourceColumn = 5
+    _gameSystemModel = self.gameSystemComboBox.model()
+    _gameSystemId = _gameSystemModel.data(_gameSystemModel.index(self.gameSystemComboBox.currentIndex(), _gameSystemModel.record().indexOf('ID'), self.gameSystemComboBox.rootModelIndex()))
 
-    _errorCount = 0
-    _errorData = []
-    _datasetCount = 0
-    for i in range(0, self.reviewTable.rowCount()):
-      _error = False
-      _datasetCount += 1
+    # Clean up creature tables before import
+    db.begin()
 
-      _name = self.reviewTable.item(i, _nameColumn).text().strip()
-      _source = self.reviewTable.item(i, _sourceColumn).text()
+    _creatureIds = db.query(statement='select ID from CREATURE where GAME_SYSTEM = ?', args=(_gameSystemId,))
+    db.query(statement='delete from CREATURE where GAME_SYSTEM = ?', args=(_gameSystemId,))
+    db.query(statement='delete from CREATURE_X_GAME_SYSTEM_PROPERTY where GAME_SYSTEM = ?', args=(_gameSystemId,))
 
-      _typeValue = self.reviewTable.item(i, _typeColumn).text()
-      _typeKey = db.query('select ID from CREATURE_TYPE where NAME = ?', (_typeValue.strip(),), one=True)['ID']
+    _creatureIdList = []
+    for _id in _creatureIds:
+      _creatureIdList.append(_id['ID'])
 
-      _crValue = self.reviewTable.item(i, _crColumn).text()
+    _creatureIdTuple = tuple(_creatureIdList)
+    _placeHolders = ','.join(['?'] * len(_creatureIdTuple))
 
-      if _crValue == '¼':
-        _crValue = '1/4'
-      elif _crValue == '½':
-        _crValue = '1/2'
+    if _creatureIdTuple:
+      db.query(statement=f'delete from CREATURE_X_ENVIRONMENT where CREATURE in ({_placeHolders})', args=_creatureIdTuple)
 
-      _crKey = db.query('select ID from CHALLENGE_RATING where CR = ?', (_crValue.strip(),), one=True)['ID']
+    _creatureCount = 0
+    try:
+      # Get max ID to keep track of creature IDs for foreign keys
+      _maxCreatureIdResult = db.query(statement='select max(ID) as ID from CREATURE', one=True)
+      _nextCreatureID = 0 if not _maxCreatureIdResult['ID'] else _maxCreatureIdResult['ID']
 
-      _alignmentValue = self.reviewTable.item(i, _alignmentColumn).text().strip()
-      _result = db.query('select ID from ALIGNMENT where NAME = ?', (_alignmentValue.strip(),), one=True)
+      # Prepare creature properties for the current game system
+      _creatureProperties = db.query(statement='select ID, PROPERTY as NAME from GAME_SYSTEM_X_CREATURE_PROPERTY where GAME_SYSTEM = ?', args=(_gameSystemId,))
 
-      _alignmentKey = None
-      if _result is not None:
-        _alignmentKey = _result['ID']
+      # Prepare environments
+      _environmentsDb = db.query(statement='select ID, NAME from ENVIRONMENT')
+      _environmentsDbDict = {}
+      for _environmentDb in _environmentsDb:
+        _environmentsDbDict[_environmentDb['NAME']] = _environmentDb['ID']
+
+      # Prepare content sources
+      _sourcesDb = db.query(f'select ID, NAME from CONTENT_SOURCE')
+      _sourceDbDict = {}
+      for _source in _sourcesDb:
+        _sourceDbDict[_source['NAME']] = _source['ID']
+
+      for _creature in self.creatureData:
+        # Translate source names into ids
+        _sourceId = _sourceDbDict[_creature['SOURCE']]
+
+        _type = db.query(statement='select ID from CREATURE_TYPE where NAME = ?', args=(_creature['TYPE'],), one=True)
+        db.insert(statement='insert into CREATURE(NAME, TYPE, GAME_SYSTEM, DESCRIPTION, TRAITS, SOURCE) values(?, ?, ?, ?, ?, ?)', args=(_creature['NAME'], _type['ID'], _gameSystemId, _creature['DESCRIPTION'], _creature['TRAITS'], _sourceId))
+        _nextCreatureID += 1
+
+        for _property in _creatureProperties:
+          db.insert(statement=f'insert into CREATURE_X_GAME_SYSTEM_PROPERTY(CREATURE, GAME_SYSTEM, PROPERTY, VALUE) values(?, ?, ?, ?)', args=(_nextCreatureID, _gameSystemId, _property['ID'], _creature[_property['NAME']]))
+
+
+        # Split environment list and translate into their ids
+        _environmentList = _creature['ENVIRONMENT'].split(',')
+        for _environment in _environmentList:
+          _environmentId = _environmentsDbDict[_environment.strip()]
+          db.insert(statement='insert into CREATURE_X_ENVIRONMENT(CREATURE, ENVIRONMENT) values(?, ?)', args=(_nextCreatureID, _environmentId))
+
+        _creatureCount += 1
+
+      if not db.commitChanges():
+        db.printLastError()
+        logging.error(f'Commit failed, rolling back')
+        db.rollbackChanges()
       else:
-        _error = True
+        logging.info(f'{_creatureCount} creatures were written to the database')
 
-      if not _error:
-        _newId = db.query('select max(ID) as ID from CREATURE', one=True)['ID']
-        if _newId is None:
-          _newId = 1
-        else:
-          _newId += 1
+    except Exception as e:
+      logging.error(f'An error occurred during insertion of the creature data: {e}')
+      db.rollbackChanges()
 
-        _rowId = None
-        _query = 'insert into CREATURE(ID, NAME, TYPE, CR, ALIGNMENT, SOURCE) values(?, ?, ?, ?, ?, ?);'
-        try:
-          _rowId = db.execute(_query, (_newId, _name, _typeKey, _crKey, _alignmentKey, _source), commit=True)
-        except sqlite3.Error as err:
-          print(f'Error occurred during execution of statement:\n {_query}')
-          print(f'Error Name: {err.sqlite_errorname}')
-          print(f'Error Code: {err.sqlite_errorcode}')
-          print(f'Error Message: {err}')
+    # Refresh data model
+    _model = dm.getDataModels().model('CREATURE_OSR')
+    _query = _model.query().lastQuery()
+    _model.setQuery(_query)
+    _rc = _model.rowCount()
+    while _model.canFetchMore():
+      _model.fetchMore()
+    _rc = _model.rowCount()
+    pass
 
-        _error = True
-        if _rowId is not None:
-          _error = False
-          _envNameList = self.reviewTable.item(i, _environmentColumn).text().strip()
-          # envNameList = envNameList.replace(' ', '')
-          _envNameList = _envNameList.split(',')
-          for envName in _envNameList:
-            _result = db.query('select ID from ENVIRONMENT where NAME = ?', (envName.strip(),), one=True)
-            _error = True
-            if _result is not None:
-              _error = None
-              envKey = _result['ID']
-              _query = 'insert into CREATURE_X_ENVIRONMENT(CREATURE_ID, ENVIRONMENT_ID) values(?, ?);'
-              _rowId = None
-              try:
-                _rowId = db.execute(_query, (_newId, envKey), commit=True)
-              except sqlite3.Error as err:
-                print(f'Error occurred during execution of statement:\n {_query}')
-                print(f'Error Name: {err.sqlite_errorname}')
-                print(f'Error Code: {err.sqlite_errorcode}')
-                print(f'Error Message: {err}')
-                _error = True
 
-      if _error:
-        _errorCount += 1
-        _errorData.append(dict(name=_name, typeKey=_typeKey, crKey=_crKey, alignmentKey=_alignmentKey,
-                               envNameList=self.reviewTable.item(i, _environmentColumn).text().strip(), source=_source))
-    self.logList.clear()
-    _logItem = QListWidgetItem(str(_datasetCount) + ' data sets have been supplied.')
-    self.logList.addItem(_logItem)
-
-    if _errorCount == 0:
-      db.commitChanges()
-      _logItem = QListWidgetItem('No errors occurred during insertion.')
-      _logItem.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
-      self.logList.addItem(_logItem)
-    else:
-      _logItem = QListWidgetItem(
-        'No data was written, ' + str(_errorCount) + ' errors were encountered during insertion:')
-      _logItem.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
-      self.logList.addItem(_logItem)
-      for item in _errorData:
-        _logItem = QListWidgetItem(str(item))
-        _logItem.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.logList.addItem(_logItem)
-
-class CreatureEditorListWidget(QWidget):
+class CreatureEditorViewWidget(QWidget):
   def __init__(self):
     super().__init__()
 
@@ -245,20 +248,238 @@ class CreatureEditorListWidget(QWidget):
 
     # Data Table
     self.dataTable = qtw.DataTable(lastSectionStretch=True)
+    self.dataTable.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+    self.dataTable.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+    self.dataTable.clicked.connect(self.handleDataTableClicked)
 
     # Filter Group Box
-    self.mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.dataTable.filterTable, resetFormMethod=self.resetForm)
+    self.mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.dataTable.filterTable, setCreatureModelMethod=self.dataTable.setDataModel, resetFormMethod=self.resetForm)
+
+    ## Stat Block
+    # Description
+    self.statBlockDescriptionValueTextEdit = QTextEdit()
+    self.statBlockDescriptionValueTextEdit.setObjectName('labelTextEdit')
+    self.statBlockDescriptionValueTextEdit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    _statBlockDescriptionGroupBoxLayout = QGridLayout()
+    _statBlockDescriptionGroupBoxLayout.addWidget(self.statBlockDescriptionValueTextEdit, 0, 0)
+    _statBlockDescriptionGroupBox = QGroupBox('Description')
+    _statBlockDescriptionGroupBox.setLayout(_statBlockDescriptionGroupBoxLayout)
+    _statBlockDescriptionGroupBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    # General
+    _statBlockNameDisplayLabel = self.makeStatBlockLabel(text='Name:')
+    self.statBlockNameValueLabel = self.makeStatBlockLabel()
+
+    _statBlockTypeDisplayLabel = self.makeStatBlockLabel(text='Type:')
+    self.statBlockTypeValueLabel = self.makeStatBlockLabel()
+
+    _statBlockEnvironmentDisplayLabel = self.makeStatBlockLabel(text='Environment:')
+    self.statBlockEnvironmentValueLabel = self.makeStatBlockLabel()
+
+    _statBlockSourceDisplayLabel = self.makeStatBlockLabel(text='Source:')
+    self.statBlockSourceValueLabel = self.makeStatBlockLabel()
+
+    for _label in [
+      _statBlockNameDisplayLabel, self.statBlockNameValueLabel,
+      _statBlockTypeDisplayLabel, self.statBlockTypeValueLabel,
+      _statBlockEnvironmentDisplayLabel, self.statBlockEnvironmentValueLabel,
+      _statBlockSourceDisplayLabel, self.statBlockSourceValueLabel
+    ]:
+      _label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+      _label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+
+    _statBlockGeneralGroupBoxLayout = QGridLayout()
+    _statBlockGeneralGroupBoxLayout.addWidget(_statBlockNameDisplayLabel, 0, 0, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(self.statBlockNameValueLabel, 0, 1, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(_statBlockTypeDisplayLabel, 1, 0, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(self.statBlockTypeValueLabel, 1, 1, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(_statBlockEnvironmentDisplayLabel, 2, 0, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(self.statBlockEnvironmentValueLabel, 2, 1, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(_statBlockSourceDisplayLabel, 3, 0, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addWidget(self.statBlockSourceValueLabel, 3, 1, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _statBlockGeneralGroupBoxLayout.addItem(QSpacerItem(0,0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum), 3, 2)
+
+    _statBlockGeneralGroupBox = QGroupBox('General')
+    _statBlockGeneralGroupBox.setLayout(_statBlockGeneralGroupBoxLayout)
+    _statBlockGeneralGroupBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    # Combat
+    _statBlockThac0DisplayLabel = self.makeStatBlockLabel(text='THAC0:')
+    self.statBlockThac0ValueLabel = self.makeStatBlockLabel()
+
+    _statBlockHdDisplayLabel = self.makeStatBlockLabel(text='HD:')
+    self.statBlockHdValueLabel = self.makeStatBlockLabel()
+
+    _statBlockAcDisplayLabel = self.makeStatBlockLabel(text='AC:')
+    self.statBlockAcValueLabel = self.makeStatBlockLabel()
+
+    _statBlockAttacksDisplayLabel = self.makeStatBlockLabel(text='Attacks:')
+    self.statBlockAttacksValueTextEdit = QTextEdit()
+    self.statBlockAttacksValueTextEdit.setObjectName('labelTextEdit')
+    self.statBlockAttacksValueTextEdit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    self.statBlockAttacksValueTextEdit.setMaximumHeight(100)
+
+    _statBlockCombatGroupBoxLayout = QGridLayout()
+    _statBlockCombatGroupBoxLayout.addWidget(_statBlockThac0DisplayLabel, 0, 0)
+    _statBlockCombatGroupBoxLayout.addWidget(self.statBlockThac0ValueLabel, 0, 1)
+    _statBlockCombatGroupBoxLayout.addWidget(_statBlockHdDisplayLabel, 1, 0)
+    _statBlockCombatGroupBoxLayout.addWidget(self.statBlockHdValueLabel, 1, 1)
+    _statBlockCombatGroupBoxLayout.addWidget(_statBlockAcDisplayLabel, 2, 0)
+    _statBlockCombatGroupBoxLayout.addWidget(self.statBlockAcValueLabel, 2, 1)
+    _statBlockCombatGroupBoxLayout.addWidget(_statBlockAttacksDisplayLabel, 3, 0, alignment=Qt.AlignmentFlag.AlignTop)
+    _statBlockCombatGroupBoxLayout.addWidget(self.statBlockAttacksValueTextEdit, 3, 1)
+    _statBlockCombatGroupBox = QGroupBox('Combat')
+    _statBlockCombatGroupBox.setLayout(_statBlockCombatGroupBoxLayout)
+    _statBlockCombatGroupBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    # Saving Throws
+    _statBlockSaveAsHdDisplayLabel = self.makeStatBlockLabel(text='Saves As HD:')
+    self.statBlockSaveAsHdValueLabel = self.makeStatBlockLabel()
+    _statBlockStDpDisplayLabel = self.makeStatBlockLabel(text='Death, Poison:')
+    self.statBlockStDpValueLabel = self.makeStatBlockLabel()
+    _statBlockStWDisplayLabel = self.makeStatBlockLabel(text='Magic Wands:')
+    self.statBlockStWValueLabel = self.makeStatBlockLabel()
+    _statBlockStPDisplayLabel = self.makeStatBlockLabel(text='Paralysis, Petrification:')
+    self.statBlockStPValueLabel = self.makeStatBlockLabel()
+    _statBlockStBDisplayLabel = self.makeStatBlockLabel(text='Breath Attacks:')
+    self.statBlockStBValueLabel = self.makeStatBlockLabel()
+    _statBlockStSrsDisplayLabel = self.makeStatBlockLabel(text='Spells, Magic Rods, Staves:')
+    self.statBlockStSrsValueLabel = self.makeStatBlockLabel()
+
+    _statBlockSavingThrowsGroupBoxLayout = QGridLayout()
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockSaveAsHdDisplayLabel, 0, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockSaveAsHdValueLabel, 0, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockStDpDisplayLabel, 1, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockStDpValueLabel, 1, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockStWDisplayLabel, 2, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockStWValueLabel, 2, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockStPDisplayLabel, 3, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockStPValueLabel, 3, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockStBDisplayLabel, 4, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockStBValueLabel, 4, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(_statBlockStSrsDisplayLabel, 5, 0)
+    _statBlockSavingThrowsGroupBoxLayout.addWidget(self.statBlockStSrsValueLabel, 5, 1)
+    _statBlockSavingThrowsGroupBoxLayout.addItem(QSpacerItem(0,0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum), 5, 2)
+    _statBlockSavingThrowGroupBox = QGroupBox('Saving Throws')
+    _statBlockSavingThrowGroupBox.setLayout(_statBlockSavingThrowsGroupBoxLayout)
+    _statBlockSavingThrowGroupBox.setMinimumWidth(350)
+    _statBlockSavingThrowGroupBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    # Traits
+    self.statBlockTraitsValueTextEdit = QTextEdit()
+    self.statBlockTraitsValueTextEdit.setObjectName('labelTextEdit')
+    self.statBlockTraitsValueTextEdit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+
+    _statBlockTraitsGroupBoxLayout = QGridLayout()
+    _statBlockTraitsGroupBoxLayout.addWidget(self.statBlockTraitsValueTextEdit, 0, 0)
+    _statBlockTraitsGroupBox = QGroupBox('Traits')
+    _statBlockTraitsGroupBox.setLayout(_statBlockTraitsGroupBoxLayout)
+    _statBlockTraitsGroupBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+
+    # Main group box
+    _statBlockGroupBoxLayout = QGridLayout()
+    _statBlockGroupBoxLayout.setContentsMargins(15, 15, 15, 15)
+    _statBlockGroupBoxLayout.setSpacing(20)
+    _statBlockGroupBoxLayout.addWidget(_statBlockDescriptionGroupBox, 0, 0)
+    _statBlockGroupBoxLayout.addWidget(_statBlockGeneralGroupBox, 1, 0)
+    _statBlockGroupBoxLayout.addWidget(_statBlockCombatGroupBox, 2, 0)
+    _statBlockGroupBoxLayout.addWidget(_statBlockSavingThrowGroupBox, 3, 0)
+    _statBlockGroupBoxLayout.addWidget(_statBlockTraitsGroupBox, 4, 0)
+
+    _statBlockGroupBoxLayout.setRowStretch(0, 1)
+    _statBlockGroupBoxLayout.setRowStretch(1, 1)
+    _statBlockGroupBoxLayout.setRowStretch(2, 1)
+    _statBlockGroupBoxLayout.setRowStretch(3, 1)
+    _statBlockGroupBoxLayout.setRowStretch(4, 3)
+
+    self.statBlockGroupBox = QGroupBox('Stat Block')
+    self.statBlockGroupBox.setLayout(_statBlockGroupBoxLayout)
+
+    ## Data table group box
+    _searchResultGroupBox = QGroupBox('Search Result')
+    _searchResultGroupBoxLayout = QGridLayout()
+    _searchResultGroupBoxLayout.setContentsMargins(10, 20, 10, 10)
+    _searchResultGroupBoxLayout.setSpacing(15)
+    _searchResultGroupBoxLayout.addWidget(self.dataTable, 0, 0)
+    _searchResultGroupBox.setLayout(_searchResultGroupBoxLayout)
+
 
     # Finish setup
     _mainGridLayout = QGridLayout()
-    _mainGridLayout.setSpacing(30)
+    _mainGridLayout.setSpacing(15)
     _mainGridLayout.addWidget(_headerLabel, 0, 0)
-    _mainGridLayout.addWidget(self.mainFilterGroupBox, 1, 0)
-    _mainGridLayout.addWidget(self.dataTable, 2, 0)
+    _mainGridLayout.addWidget(self.mainFilterGroupBox, 1, 0, 1, 2)
+    _mainGridLayout.addWidget(_searchResultGroupBox, 2, 0)
+    _mainGridLayout.addWidget(self.statBlockGroupBox, 2, 1)
+
+    _mainGridLayout.setRowStretch(0, 1)
+    _mainGridLayout.setRowStretch(1, 1)
+    _mainGridLayout.setRowStretch(2, 3)
+
+    _mainGridLayout.setColumnStretch(0, 2)
+    _mainGridLayout.setColumnStretch(1, 1)
+
     self.setLayout(_mainGridLayout)
 
     _filterValues = self.mainFilterGroupBox.getFilterItems()
     self.dataTable.filterTable(_filterValues)
+
+  def makeStatBlockLabel(self, text='', bold=False):
+    _label = QLabel(text)
+
+    if bold:
+      _font = _label.font()
+      _font.setBold(True)
+      _label.setFont(_font)
+
+    return _label
+
+  def handleDataTableClicked(self):
+    _selectedRow = self.dataTable.selectionModel().selectedRows()[0].row()
+    _selectedIndex = self.dataTable.selectionModel().selectedIndexes()
+
+    for _column in range(self.dataTable.model().columnCount()):
+      _index = self.dataTable.model().index(_selectedRow, _column)
+      _columnName = self.dataTable.model().headerData(_column, Qt.Orientation.Horizontal)
+      _text = _index.data()
+
+      if _columnName == 'NAME':
+        self.statBlockNameValueLabel.setText(_index.data())
+      elif _columnName == 'DESCRIPTION':
+        self.statBlockDescriptionValueTextEdit.setText(_index.data())
+      elif _columnName == 'TRAITS':
+        _text = _index.data().replace('; ', '\n\n').replace(';', '\n\n')
+        self.statBlockTraitsValueTextEdit.setText(_text)
+      elif _columnName == 'TYPE':
+        self.statBlockTypeValueLabel.setText(_index.data())
+      elif _columnName == 'ENVIRONMENT':
+        self.statBlockEnvironmentValueLabel.setText(_index.data())
+      elif _columnName == 'SOURCE':
+        self.statBlockSourceValueLabel.setText(_index.data())
+      elif _columnName == 'THAC0':
+        self.statBlockThac0ValueLabel.setText(_index.data())
+      elif _columnName == 'HD':
+        self.statBlockHdValueLabel.setText(_index.data())
+      elif _columnName == 'AC':
+        self.statBlockAcValueLabel.setText(_index.data())
+      elif _columnName == 'ATTACKS':
+        _text = _index.data()
+        self.statBlockAttacksValueTextEdit.setText(_text)
+      elif _columnName == 'SV_HD':
+        self.statBlockSaveAsHdValueLabel.setText(_index.data())
+      elif _columnName == 'ST_D':
+        self.statBlockStDpValueLabel.setText(_index.data())
+      elif _columnName == 'ST_W':
+        self.statBlockStWValueLabel.setText(_index.data())
+      elif _columnName == 'ST_P':
+        self.statBlockStPValueLabel.setText(_index.data())
+      elif _columnName == 'ST_B':
+        self.statBlockStBValueLabel.setText(_index.data())
+      elif _columnName == 'ST_S':
+        self.statBlockStSrsValueLabel.setText(_index.data())
+    pass
 
   def resetForm(self):
     self.mainFilterGroupBox.resetFilter()
@@ -297,7 +518,7 @@ class CreatureEditorExportWidget(QWidget):
     _searchResultGroupBox = self.defineSearchResultsGroupBox()
 
     # Filter Group Box
-    self._mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.searchResultTable.filterTable, resetFormMethod=self.resetForm)
+    self._mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.searchResultTable.filterTable, setCreatureModelMethod=self.searchResultTable.setDataModel, resetFormMethod=self.resetForm)
 
     # Preview Table Group Box
     self.previewTable = qtw.DataTable()
@@ -354,7 +575,7 @@ class CreatureEditorExportWidget(QWidget):
     self.searchResultTable.addColumn(name='SOURCE', position=5, width=350, alignment=Qt.AlignmentFlag.AlignLeft)
 
     # Finish Setup
-    _searchResultGroupBoxLayout.addItem(QSpacerItem(10, 10), 0, 0)
+    _searchResultGroupBoxLayout.setContentsMargins(10, 20, 10, 10)
     _searchResultGroupBoxLayout.addWidget(self.searchResultTable, 1, 0, 1, 4)
     _searchResultGroupBoxLayout.addWidget(_addAllToExportButton, 2, 0)
     _searchResultGroupBoxLayout.addWidget(_addSelectionToExportButton, 2, 1)
@@ -388,7 +609,7 @@ class CreatureEditorExportWidget(QWidget):
     self.previewTable.addColumn(name='ENVIRONMENT', position=4, width=350, alignment=Qt.AlignmentFlag.AlignLeft)
     self.previewTable.addColumn(name='SOURCE', position=5, width=350, alignment=Qt.AlignmentFlag.AlignLeft)
 
-    _previewTableGroupBoxLayout.addItem(QSpacerItem(10, 10), 0, 0)
+    _previewTableGroupBoxLayout.setContentsMargins(10, 20, 10, 10)
     _previewTableGroupBoxLayout.addWidget(self.previewTable, 1, 0, 1, 3)
     _previewTableGroupBoxLayout.addWidget(_removeFromExportButton, 2, 0)
     _previewTableGroupBoxLayout.addWidget(_clearExportTableButton, 2, 1)
@@ -484,7 +705,7 @@ class CreatureEditor(QWidget):
 
     self.newButton = QPushButton("New")
     self.editButton = QPushButton("Edit")
-    self.listButton = QPushButton("List")
+    self.viewButton = QPushButton("View")
     self.importButton = QPushButton("Import")
     self.exportButton = QPushButton("Export")
 
@@ -492,7 +713,7 @@ class CreatureEditor(QWidget):
     self.contentStackedWidget = QStackedWidget()
 
     self.creatureEditorNewWidget = CreatureEditorNewWidget()
-    self.creatureEditorListWidget = CreatureEditorListWidget()
+    self.creatureEditorListWidget = CreatureEditorViewWidget()
     self.creatureEditorImportWidget = CreatureEditorImportWidget()
     self.creatureEditorExportWidget = CreatureEditorExportWidget()
 
@@ -508,13 +729,13 @@ class CreatureEditor(QWidget):
   def defineMenuLayout(self):
     self.newButton.clicked.connect(lambda clicked: self.changeWidget(self.creatureEditorNewWidget))
     self.importButton.clicked.connect(lambda clicked: self.changeWidget(self.creatureEditorImportWidget))
-    self.listButton.clicked.connect(lambda clicked: self.changeWidget(self.creatureEditorListWidget))
+    self.viewButton.clicked.connect(lambda clicked: self.changeWidget(self.creatureEditorListWidget))
     self.exportButton.clicked.connect(lambda clicked: self.changeWidget(self.creatureEditorExportWidget))
 
     menuLayout = QVBoxLayout()
     menuLayout.addWidget(self.newButton, 0)
     menuLayout.addWidget(self.editButton)
-    menuLayout.addWidget(self.listButton)
+    menuLayout.addWidget(self.viewButton)
     menuLayout.addWidget(self.importButton)
     menuLayout.addWidget(self.exportButton)
     menuLayout.setSpacing(15)

@@ -129,20 +129,6 @@ class ManageDatabaseWidget(QWidget):
       for _statement in _insertStatements:
         _sqlFile.write(_statement)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 class ManageTablesWidget(QWidget):
   def __init__(self):
     super().__init__()
@@ -278,7 +264,6 @@ class ManageTablesWidget(QWidget):
     # Gather selected rows
     _rows = []
     for _range in self.dataTable.selectedRanges():
-      print(f'tr: {_range.topRow()}, br: {_range.bottomRow()}')
       for i in range(_range.topRow(), _range.bottomRow() + 1):
         _rows.append(i)
 
@@ -323,15 +308,13 @@ class ManageTablesWidget(QWidget):
       db.query(statement=_deleteStatement, commit=True)
 
     self.dataTable.clearSelection()
-
-
     self.loadDataIntoTable(dbTable=self.tableComboBox.currentText())
 
   def loadDataIntoTable(self, dbTable):
     # Fill structure table
     _tableStructure = db.getTableStructure(dbTable)
+    self.structureTable.setRowCount(len(_tableStructure['COLUMNS']))
 
-    self.structureTable.setRowCount(len(_tableStructure))
     _rowIndex = 0
     _tableColumns = []
     for _row in _tableStructure['COLUMNS']:
@@ -357,6 +340,7 @@ class ManageTablesWidget(QWidget):
       _tableColumns.append(_row['COLUMN_NAME'])
 
       _rowIndex += 1
+
 
     # Set data table header items
     self.dataTable.setColumnCount(len(_tableColumns))

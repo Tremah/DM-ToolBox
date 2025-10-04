@@ -1,3 +1,4 @@
+import logging
 import re
 
 from PySide6.QtSql import QSqlDatabase, QSqlQuery
@@ -12,12 +13,25 @@ def openConnection(driver, path):
 def closeConnection():
   QSqlDatabase.database().close()
 
+def begin():
+  _database = QSqlDatabase.database()
+  _database.transaction()
+
 def commitChanges():
-  QSqlDatabase.database().commit()
+  return QSqlDatabase.database().commit()
+
+def rollbackChanges():
+  return QSqlDatabase.database().rollback()
 
 def printError(error):
+  logging.error(f'Error Type: {error.type()}')
+  logging.error(f'Error Message: {error.text()}')
+
   print(f'Error Type: {error.type()}')
   print(f'Error Message: {error.text()}')
+
+def printLastError():
+  printError(QSqlDatabase.database().lastError())
 
 def getTableColumnStructure(table, column):
   _tableStructure = getTableStructure(table)
@@ -118,14 +132,14 @@ def getTableStructureForAllTables(excludeSqliteTables=True):
 
   return _tableStructureAllTables
 
-def insert(statement, args=(), commit=None):
+def insert(statement, args=(), commit=False):
   query(statement, args, commit)
 
-def query(statement, args=(), commit=None, one=False):
-  if QSqlDatabase.database().isOpen():
-    QSqlDatabase.database().close()
+def query(statement, args=(), commit=False, one=False):
+  #if QSqlDatabase.database().isOpen():
+    #QSqlDatabase.database().close()
 
-  QSqlDatabase.database().open()
+  #QSqlDatabase.database().open()
 
   _query = QSqlQuery()
 
@@ -152,6 +166,7 @@ def query(statement, args=(), commit=None, one=False):
   if not _query.isSelect():
     if commit:
       commitChanges()
+    _query.finish()
     return []
 
   _fields = []

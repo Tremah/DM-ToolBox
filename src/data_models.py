@@ -3,7 +3,51 @@ from PySide6.QtSql import QSqlTableModel, QSqlRelationalTableModel, QSqlRelation
 
 import database as db
 
-class CreatureProxyModel(QSortFilterProxyModel):
+class CreatureGameSystemProxyModel(QSortFilterProxyModel):
+  def __init__(self):
+    super().__init__()
+
+    self.gameSystem = -1
+
+  def filterAcceptsRow(self, source_row, source_parent):
+    if self.gameSystem == -1:
+      return False
+
+    _sourceModel = self.sourceModel()
+    _colId = _sourceModel.record().indexOf('GAME_SYSTEM')
+    _value = _sourceModel.index(source_row, _colId).data()
+    if _value == self.gameSystem:
+      return True
+
+    return False
+
+  def setGameSystem(self, gameSystem):
+    self.gameSystem = gameSystem
+    self.invalidateFilter()
+
+class CreatureSourceProxyModel(QSortFilterProxyModel):
+  def __init__(self):
+    super().__init__()
+
+    self.source = ''
+
+  def filterAcceptsRow(self, source_row, source_parent):
+    if self.source == -1:
+      return False
+
+    _sourceModel = self.sourceModel()
+    _colId = _sourceModel.record().indexOf('SOURCE')
+    _value = _sourceModel.index(source_row, _colId).data()
+    if _value == self.source:
+      return True
+
+    return False
+
+  def setSource(self, source):
+    self.source = source
+    self.invalidateFilter()
+
+class CreatureNameProxyModel(QSortFilterProxyModel):
   def __init__(self):
     super().__init__()
 
@@ -26,17 +70,11 @@ class CreatureProxyModel(QSortFilterProxyModel):
       if not self.filterValues[_key]:
         continue
 
-      _colId = -1
-      for i in range(_sourceModel.columnCount()):
-        _name = _sourceModel.headerData(i, Qt.Orientation.Horizontal)
-        if _name == _key:
-          _colId = i
-          break
-
+      _colId = _sourceModel.record().indexOf(_key)
       _value = _sourceModel.data(_sourceModel.index(source_row, _colId))
       # Debug
-      if _value in (124, 1518, 1519):
-        pass
+      #if _value in (124, 1518, 1519):
+        #pass
 
       if _key == 'ENVIRONMENT':
         _show = False
@@ -136,7 +174,8 @@ class DataModels:
     self.models['PRECIPITATION_CLASS'] = self.defineModel(table='PRECIPITATION_CLASS')
 
     # Models with foreign key support
-    self.models['CREATURE'] = self.defineCreatureModel()
+    self.models['CREATURE_5E'] = self.define5eCreatureModel()
+    self.models['CREATURE_OSR'] = self.defineOsrCreatureModel()
     self.models['CREATURE_X_GAME_SYSTEM'] = self.defineModel(table='CREATURE_X_GAME_SYSTEM')
     self.models['CREATURE_X_ENVIRONMENT'] = self.defineModel(table='CREATURE_X_ENVIRONMENT')
 
@@ -168,7 +207,8 @@ class DataModels:
 
     return _model
 
-  def defineCreatureModel(self):
+  def define5eCreatureModel(self):
+    _gameSystemParameterTypeId = db.getGameParameterTypeId('GAME_SYSTEM')
 
     _model = QSqlQueryModel()
     _query = f'''
@@ -182,6 +222,8 @@ class DataModels:
         ce.ENVIRONMENT_LIST as ENVIRONMENT
       from
         CREATURE c
+        left join CREATURE_X_GAME_SYSTEM cgs on c.ID = cgs.CREATURE
+        inner join GAME_PARAMETER gp on cgs.GAME_SYSTEM = gp.ID and gp.TYPE = {_gameSystemParameterTypeId} and gp.VALUE_2 = 'D&D 5e'
         left join CREATURE_TYPE ct on c.TYPE = ct.ID
         left join ALIGNMENT a on c.ALIGNMENT = a.ID
         left join CHALLENGE_RATING cr on c.CR = cr.ID
@@ -207,6 +249,78 @@ class DataModels:
     _model.setHeaderData(5, Qt.Orientation.Horizontal, 'SOURCE')
     _model.setHeaderData(6, Qt.Orientation.Horizontal, 'ENVIRONMENT')
 
+    while _model.canFetchMore():
+      _model.fetchMore()
+
+    return _model
+
+  def defineOsrCreatureModel(self):
+    _relevantGameSystemNames = "'OSE', 'B/X'"
+    _osrGameSystems = db.query(statement=f'select ID from GAME_SYSTEM where NAME_SHORT in ({_relevantGameSystemNames})')
+    _osrGameSystemsList = []
+    for _system in _osrGameSystems:
+      _osrGameSystemsList.append(_system['ID'])
+
+    # Prepare attribute statements
+    _gameSystemProperties = db.query(statement=f'''
+      select
+        gscp.PROPERTY
+      from
+        GAME_SYSTEM_X_CREATURE_PROPERTY gscp
+        inner join GAME_SYSTEM gs on gscp.GAME_SYSTEM = gs.ID and gs.NAME_SHORT in ({_relevantGameSystemNames})
+      order by
+        gscp.PROPERTY''')
+
+    _propertySqlStatements  = []
+    for _property in _gameSystemProperties:
+      _statement = f'max(case when gscp.PROPERTY = "{_property['PROPERTY']}" then cgsp.VALUE end) as {_property['PROPERTY']}'
+      _propertySqlStatements.append(_statement)
+
+    _propertySqlStatementsStr = ','.join(_propertySqlStatements)
+
+
+    _query = f'''      
+      select distinct
+        c.ID,
+        c.NAME,
+        c.DESCRIPTION,
+        c.TRAITS,
+        c.GAME_SYSTEM,
+        ct.NAME as TYPE,
+		    max(case when gscp.PROPERTY = "HD" then cgsp.VALUE end) as HD,
+		    max(case when gscp.PROPERTY = "AC" then cgsp.VALUE end) as AC,
+		    max(case when gscp.PROPERTY = "ATTACKS" then cgsp.VALUE end) as ATTACKS,
+		    max(case when gscp.PROPERTY = "THAC0" then cgsp.VALUE end) as THAC0,
+		    max(case when gscp.PROPERTY = "XP" then cgsp.VALUE end) as XP,
+		    max(case when gscp.PROPERTY = "SV_HD" then cgsp.VALUE end) as SV_HD,
+		    max(case when gscp.PROPERTY = "ST_D" then cgsp.VALUE end) as ST_D,
+		    max(case when gscp.PROPERTY = "ST_W" then cgsp.VALUE end) as ST_W,
+		    max(case when gscp.PROPERTY = "ST_P" then cgsp.VALUE end) as ST_P,
+		    max(case when gscp.PROPERTY = "ST_B" then cgsp.VALUE end) as ST_B,
+		    max(case when gscp.PROPERTY = "ST_S" then cgsp.VALUE end) as ST_S,
+		    max(case when gscp.PROPERTY = "ALIGNMENT" then cgsp.VALUE end) as ALIGNMENT,
+		    replace(group_concat(distinct e.NAME), ',', ', ') as ENVIRONMENT,
+        cs.NAME as SOURCE
+      from
+        GAME_SYSTEM gs
+        inner join CREATURE c on gs.ID = c.GAME_SYSTEM		 
+		    left join GAME_SYSTEM_X_CREATURE_PROPERTY gscp on gs.ID = gscp.GAME_SYSTEM  
+        left join CREATURE_X_GAME_SYSTEM_PROPERTY cgsp on c.ID = cgsp.CREATURE and gscp.ID = cgsp.PROPERTY
+        left join CREATURE_TYPE ct on c.TYPE = ct.ID
+        left join CONTENT_SOURCE cs on c.SOURCE = cs.ID
+		    left join CREATURE_X_ENVIRONMENT ce on c.ID = ce.CREATURE
+		    inner join ENVIRONMENT e on ce.ENVIRONMENT = e.ID
+		  where 
+		    gs.NAME_SHORT in ('OSE', 'B/X')		
+      group by
+        c.NAME     
+      order by
+        c.ID
+    '''
+
+    _model = QSqlQueryModel()
+    _model.setQuery(_query)
+    _rc = _model.rowCount()
     while _model.canFetchMore():
       _model.fetchMore()
 

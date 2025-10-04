@@ -49,7 +49,7 @@ class EncounterTableWidget(QWidget):
     _searchResultGroupBox = self.defineSearchResultsGroupBox()
 
     # Filter Group Box
-    self._mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.searchResultTable.filterTable, resetFormMethod=self.resetForm)
+    self._mainFilterGroupBox = qtw.CreatureFilterGroupBox(title='Filters', applyFilterMethod=self.searchResultTable.filterTable, setCreatureModelMethod=self.searchResultTable.setDataModel, resetFormMethod=self.resetForm)
 
     # Encounter Table Creation Setting Group Box
     self.addDieColumnToEncounterTableCheckBox = QCheckBox()

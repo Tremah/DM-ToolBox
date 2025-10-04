@@ -103,6 +103,11 @@ class MainWindow(QMainWindow):
     button_action.triggered.connect(lambda clicked: self.changeWidget(tools))
     self.mainMenu.addAction(button_action)
 
+    # Read stylesheet
+    with open("src/app.qss", "r") as f:
+      _style = f.read()
+      app.setStyleSheet(_style)
+
   def changeWidget(self, widget):
     self.stackedWidget.setCurrentWidget(widget)
 
@@ -119,19 +124,17 @@ def main():
   _logWindow = log.LogWindow()
   _mainWindow = MainWindow()
 
+
+
   _mainWindow.show()
 
-  _dock = QDockWidget("Logs", _mainWindow)
+  _dock = QDockWidget("Log", _mainWindow)
   _dock.setWidget(_logWindow)
   _dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
   _mainWindow.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, _dock)
 
-
-
-  app.setStyleSheet("QGroupBox{border: 1px solid #555; margin-top: 9px;} QGroupBox::title {subcontrol-origin: margin; left: 15px; padding: 0px 1px 0px 1px;}")
   app.exec()
 
   return 0
-
 
 main()
