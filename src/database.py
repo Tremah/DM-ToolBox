@@ -132,21 +132,27 @@ def getTableStructureForAllTables(excludeSqliteTables=True):
 
   return _tableStructureAllTables
 
+def update(statement, args=(), commit=False):
+  return query(statement, args, commit)
+
 def insert(statement, args=(), commit=False):
-  query(statement, args, commit)
+  return query(statement, args, commit)
 
 def query(statement, args=(), commit=False, one=False):
-  #if QSqlDatabase.database().isOpen():
-    #QSqlDatabase.database().close()
-
-  #QSqlDatabase.database().open()
-
   _query = QSqlQuery()
 
-  #_query.setForwardOnly(True)
+  _isSelect = statement.lstrip().lower().startswith('select')
+  _isInsert = statement.lstrip().lower().startswith('insert')
+  _isUpdate = statement.lstrip().lower().startswith('update')
+  _isAlter = statement.lstrip().lower().startswith('alter')
+
   if not _query.prepare(statement):
     printError(_query.lastError())
     _query.finish()
+
+    if not _isSelect:
+      return -1
+
     return []
 
   for _arg in args:
@@ -156,18 +162,27 @@ def query(statement, args=(), commit=False, one=False):
   if _query.isValid():
     printError(_query.lastError())
     _query.finish()
+
+    if not _isSelect:
+      return -1
+
     return []
 
   if not _query.exec():
     printError(_query.lastError())
     _query.finish()
+
+    if not _isSelect:
+      return -1
+
     return []
 
-  if not _query.isSelect():
+  if _isInsert or _isUpdate:
     if commit:
       commitChanges()
     _query.finish()
-    return []
+
+    return 0
 
   _fields = []
   _fieldCount = 0

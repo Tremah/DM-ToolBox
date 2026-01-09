@@ -19,102 +19,75 @@ from PySide6.QtWidgets import (
   QComboBox, QPlainTextEdit, QSpacerItem, QFileDialog, QSpinBox, QTableWidget, QTableWidgetItem, QTableView, QLineEdit, QHBoxLayout, QCheckBox
 )
 
-import database as db
-import data_models as dm
-import helper as hp
-import app_config as apc
+from src import database as db
+from src import data_models as dm
+from src import helper as hp
+from src import app_config as apc
+from src.game_system_data_models import ose
 
 class CharacterBuildWidget(QWidget):
   def __init__(self):
     super().__init__()
 
+    oseModel = ose.OseCharacterDataModel()
+    oseModel.createCharacter()
+
     # Data Models
-    self.raceModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
-    self.raceModel.setParameter(parameterName='RACE')
-    self.classModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
-    self.classModel.setParameter(parameterName='CLASS')
+    self.raceModel = dm.getDataModels().model('RACE')
+    self.classModel = dm.getDataModels().model('CLASS')
+    self.alignmentModel = dm.getDataModels().model('ALIGNMENT')
 
     # Header Label
     _headerLabel = QLabel('Character Builder')
-    _headerLabel.setFont(QFont('Ubuntu Sans', 14))
-    _headerLabel.setMaximumSize(500, 20)
-
-    ## Settings Group Box
-    self.settingsGroupBox = QGroupBox()
-    self.settingsGroupBox.setTitle('Settings')
-    self.settingsGroupBox.setMinimumSize(400, 900)
-    self.settingsGroupBox.setMaximumSize(400, 900)
-    self.settingsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    _headerLabel.setObjectName('headerLabel')
 
     # Race
     _raceComboBoxLabel = QLabel('Race:')
-    _raceComboBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _raceComboBoxLabel.setMaximumSize(100, 20)
-
     self.raceComboBox = QComboBox()
     self.raceComboBox.setModel(self.raceModel)
-    self.raceComboBox.setModelColumn(self.raceModel.sourceModel().record().indexOf('VALUE_1'))
-    self.raceComboBox.setMaximumSize(150, 30)
-    self.raceComboBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.raceComboBox.setModelColumn(self.raceModel.record().indexOf('NAME'))
 
     # Class
     _classComboBoxLabel = QLabel('Class:')
-    _classComboBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _classComboBoxLabel.setMaximumSize(100, 20)
-
     self.classComboBox = QComboBox()
     self.classComboBox.setModel(self.classModel)
-    self.classComboBox.setModelColumn(self.classModel.sourceModel().record().indexOf('VALUE_1'))
-    self.classComboBox.setMaximumSize(150, 30)
-    self.classComboBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.classComboBox.setModelColumn(self.classModel.record().indexOf('NAME'))
 
     # Level
     _levelSpinBoxLabel = QLabel('Level:')
-    _levelSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _levelSpinBoxLabel.setMaximumSize(150, 20)
 
     self.levelSpinBox = QSpinBox()
-    self.levelSpinBox.setFont(QFont('Ubuntu Mono', 11))
     self.levelSpinBox.setMinimum(0)
     self.levelSpinBox.setMaximum(100)
     self.levelSpinBox.setValue(1)
-    self.levelSpinBox.setMaximumWidth(60)
 
     # Age
     _ageSpinBoxLabel = QLabel('Age:')
-    _ageSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _ageSpinBoxLabel.setMaximumSize(150, 20)
 
     self.ageSpinBox = QSpinBox()
-    self.ageSpinBox.setFont(QFont('Ubuntu Mono', 11))
     self.ageSpinBox.setMinimum(1)
     self.ageSpinBox.setMaximum(3000)
     self.ageSpinBox.setValue(1)
-    self.ageSpinBox.setMaximumWidth(60)
 
     # Random character
     self.randomCharacterButton = QPushButton("Random Character")
-    self.randomCharacterButton.setMinimumWidth(150)
     self.randomCharacterButton.clicked.connect(self.handleRandomCharacterButton)
 
     # Generate
     self.generateButton = QPushButton("Generate")
-    self.generateButton.setMinimumWidth(150)
     self.generateButton.clicked.connect(self.handleGenerateButton)
 
     # Clear
     self.clearButton = QPushButton("Clear")
-    self.clearButton.setMinimumWidth(150)
     self.clearButton.clicked.connect(self.handleClearButton)
 
     # Save to file
     self.saveToFileButton = QPushButton("Save To File")
-    self.saveToFileButton.setMinimumWidth(150)
     self.saveToFileButton.clicked.connect(self.handleSaveToFileButton)
 
     # Finish settings group box
     self.settingsGroupBoxLayout = QGridLayout()
-    self.settingsGroupBoxLayout.setSpacing(15)
+    self.settingsGroupBoxLayout.setSpacing(20)
     self.settingsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
     self.settingsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.settingsGroupBoxLayout.addWidget(_classComboBoxLabel, 0, 0)
@@ -131,133 +104,289 @@ class CharacterBuildWidget(QWidget):
     self.settingsGroupBoxLayout.addWidget(self.clearButton, 11, 0)
     self.settingsGroupBoxLayout.addWidget(self.saveToFileButton, 12, 0)
 
+    self.settingsGroupBoxLayout.setColumnStretch(0, 1)
+    self.settingsGroupBoxLayout.setColumnStretch(1, 1)
+    self.settingsGroupBoxLayout.setColumnStretch(3, 2)
+
+    ## Settings Group Box
+    self.settingsGroupBox = QGroupBox()
+    self.settingsGroupBox.setTitle('Settings')
+    self.settingsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.settingsGroupBox.setLayout(self.settingsGroupBoxLayout)
 
     ## Character GroupBox
-    self.characterGroupBox = QGroupBox()
-    self.characterGroupBox.setTitle('Character')
-    self.characterGroupBox.setMinimumSize(900, 900)
-    self.characterGroupBox.setMaximumSize(1500, 900)
-    self.characterGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+
+    # GENERAL #
 
     # Character name
     _nameLineEditLabel = QLabel('Name:')
-    _nameLineEditLabel.setFont(QFont('Ubuntu Sans', 12))
-    _nameLineEditLabel.setMaximumSize(80, 20)
     self.nameLineEdit = QLineEdit()
-    self.nameLineEdit.setMaximumWidth(200)
 
-    # Character class
+    # Class
     _classLineEditLabel = QLabel('Class:')
-    _classLineEditLabel.setFont(QFont('Ubuntu Sans', 12))
-    _classLineEditLabel.setMaximumSize(80, 20)
     self.classLineEdit = QLineEdit()
-    self.classLineEdit.setMaximumWidth(200)
 
-    # Character race
+    # Race
     _raceLineEditLabel = QLabel('Race:')
-    _raceLineEditLabel.setFont(QFont('Ubuntu Sans', 12))
-    _raceLineEditLabel.setMaximumSize(80, 20)
     self.raceLineEdit = QLineEdit()
-    self.raceLineEdit.setMaximumWidth(200)
 
-    # Character level
+    # Level
     _levelLineEditLabel = QLabel('Level:')
-    _levelLineEditLabel.setFont(QFont('Ubuntu Sans', 12))
-    _levelLineEditLabel.setMaximumSize(80, 20)
     self.levelLineEdit = QLineEdit()
-    self.levelLineEdit.setMaximumWidth(200)
 
-    # Character HP
-    _hpSpinBoxLabel = QLabel('HP:')
-    _hpSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _hpSpinBoxLabel.setMaximumSize(150, 20)
+    # XP
+    _xpLineEditLabel = QLabel('XP:')
+    self.xpLineEdit = QLineEdit()
 
-    self.hpSpinBox = QSpinBox()
-    self.hpSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.hpSpinBox.setMinimum(1)
-    self.hpSpinBox.setMaximum(1000)
-    self.hpSpinBox.setValue(1)
-    self.hpSpinBox.setMaximumWidth(60)
+    # Starting Wealth
+    _startingWealthSpinBoxLabel = QLabel('Starting Wealth:')
+    self.startingWealthSpinBox = QSpinBox()
+    self.startingWealthSpinBox.setMinimum(1)
+    self.startingWealthSpinBox.setMaximum(10000)
+    self.startingWealthSpinBox.setValue(1)
 
-    # Strength score
-    _strengthSpinBoxLabel = QLabel('Strength:')
-    _strengthSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _strengthSpinBoxLabel.setMaximumSize(150, 20)
+    # Character title
+    _titleLineEditLabel = QLabel('Title:')
+    self.titleLineEdit = QLineEdit()
 
-    self.strengthSpinBox = QSpinBox()
-    self.strengthSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.strengthSpinBox.setMinimum(1)
-    self.strengthSpinBox.setMaximum(30)
-    self.strengthSpinBox.setValue(1)
-    self.strengthSpinBox.setMaximumWidth(60)
-
-    # Intelligence score
-    _intelligenceSpinBoxLabel = QLabel('Intelligence:')
-    _intelligenceSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _intelligenceSpinBoxLabel.setMaximumSize(150, 20)
-
-    self.intelligenceSpinBox = QSpinBox()
-    self.intelligenceSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.intelligenceSpinBox.setMinimum(1)
-    self.intelligenceSpinBox.setMaximum(30)
-    self.intelligenceSpinBox.setValue(1)
-    self.intelligenceSpinBox.setMaximumWidth(60)
-
-    # Wisdom score
-    _wisdomSpinBoxLabel = QLabel('Wisdom:')
-    _wisdomSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _wisdomSpinBoxLabel.setMaximumSize(150, 20)
-
-    self.wisdomSpinBox = QSpinBox()
-    self.wisdomSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.wisdomSpinBox.setMinimum(1)
-    self.wisdomSpinBox.setMaximum(30)
-    self.wisdomSpinBox.setValue(1)
-    self.wisdomSpinBox.setMaximumWidth(60)
-
-    # Dexterity score
-    _dexteritySpinBoxLabel = QLabel('Dexterity:')
-    _dexteritySpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _dexteritySpinBoxLabel.setMaximumSize(150, 20)
-
-    self.dexteritySpinBox = QSpinBox()
-    self.dexteritySpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.dexteritySpinBox.setMinimum(1)
-    self.dexteritySpinBox.setMaximum(30)
-    self.dexteritySpinBox.setValue(1)
-    self.dexteritySpinBox.setMaximumWidth(60)
-
-    # Constitution score
-    _constitutionSpinBoxLabel = QLabel('Constitution:')
-    _constitutionSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _constitutionSpinBoxLabel.setMaximumSize(150, 20)
-
-    self.constitutionSpinBox = QSpinBox()
-    self.constitutionSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.constitutionSpinBox.setMinimum(1)
-    self.constitutionSpinBox.setMaximum(30)
-    self.constitutionSpinBox.setValue(1)
-    self.constitutionSpinBox.setMaximumWidth(60)
-
-    # Charisma score
-    _charismaSpinBoxLabel = QLabel('Charisma:')
-    _charismaSpinBoxLabel.setFont(QFont('Ubuntu Sans', 12))
-    _charismaSpinBoxLabel.setMaximumSize(150, 20)
-
-    self.charismaSpinBox = QSpinBox()
-    self.charismaSpinBox.setFont(QFont('Ubuntu Mono', 11))
-    self.charismaSpinBox.setMinimum(1)
-    self.charismaSpinBox.setMaximum(30)
-    self.charismaSpinBox.setValue(1)
-    self.charismaSpinBox.setMaximumWidth(60)
+    # Character alignment
+    _alignmentComboboxLabel = QLabel('Alignment:')
+    self.alignmentComboBox = QComboBox()
+    self.alignmentComboBox.setModel(self.alignmentModel)
+    self.alignmentComboBox.setModelColumn(self.alignmentModel.record().indexOf('NAME'))
 
     # Character age
     _ageLineEditLabel = QLabel('Age:')
-    _ageLineEditLabel.setFont(QFont('Ubuntu Sans', 12))
-    _ageLineEditLabel.setMaximumSize(80, 20)
     self.ageLineEdit = QLineEdit()
-    self.ageLineEdit.setMaximumWidth(200)
+
+    # Character height
+    _heightLineEditLabel = QLabel('Height:')
+    self.heightLineEdit = QLineEdit()
+
+    # Character weight
+    _weightLineEditLabel = QLabel('Weight:')
+    self.weightLineEdit = QLineEdit()
+
+    # MOVEMENT #
+
+    # Overland
+    _movementOverlandLabelLabel = QLabel('Overland:')
+    self.movementOverlandLabel = QLabel()
+
+    # Exploration
+    _movementExploration = QLabel('Exploration:')
+    self.movementExplorationLineEdit = QLineEdit()
+
+    # Encounter
+    _movementEncounterLabelLabel = QLabel('Encounter:')
+    self.movementEncounterLabel = QLabel()
+
+    # ABILITIES #
+
+    # Strength score
+    _strengthSpinBoxLabel = QLabel('Strength:')
+    self.strengthSpinBox = QSpinBox()
+    self.strengthSpinBox.setMinimum(1)
+    self.strengthSpinBox.setMaximum(30)
+    self.strengthSpinBox.setValue(1)
+
+    _strengthModSpinBoxLabel = QLabel('Mod:')
+    self.strengthModSpinBox = QSpinBox()
+    self.strengthModSpinBox.setMinimum(0)
+    self.strengthModSpinBox.setMaximum(3)
+    self.strengthModSpinBox.setValue(0)
+
+    # Intelligence score
+    _intelligenceSpinBoxLabel = QLabel('Intelligence:')
+    self.intelligenceSpinBox = QSpinBox()
+    self.intelligenceSpinBox.setMinimum(1)
+    self.intelligenceSpinBox.setMaximum(30)
+    self.intelligenceSpinBox.setValue(1)
+
+    _intelligenceModSpinBoxLabel = QLabel('Mod:')
+    self.intelligenceModSpinBox = QSpinBox()
+    self.intelligenceModSpinBox.setMinimum(0)
+    self.intelligenceModSpinBox.setMaximum(3)
+    self.intelligenceModSpinBox.setValue(0)
+
+    # Wisdom score
+    _wisdomSpinBoxLabel = QLabel('Wisdom:')
+    self.wisdomSpinBox = QSpinBox()
+    self.wisdomSpinBox.setMinimum(1)
+    self.wisdomSpinBox.setMaximum(30)
+    self.wisdomSpinBox.setValue(1)
+
+    _wisdomModSpinBoxLabel = QLabel('Mod:')
+    self.wisdomModSpinBox = QSpinBox()
+    self.wisdomModSpinBox.setMinimum(0)
+    self.wisdomModSpinBox.setMaximum(3)
+    self.wisdomModSpinBox.setValue(0)
+
+    # Dexterity score
+    _dexteritySpinBoxLabel = QLabel('Dexterity:')
+    self.dexteritySpinBox = QSpinBox()
+    self.dexteritySpinBox.setMinimum(1)
+    self.dexteritySpinBox.setMaximum(30)
+    self.dexteritySpinBox.setValue(1)
+
+    _dexterityModSpinBoxLabel = QLabel('Mod:')
+    self.dexterityModSpinBox = QSpinBox()
+    self.dexterityModSpinBox.setMinimum(0)
+    self.dexterityModSpinBox.setMaximum(3)
+    self.dexterityModSpinBox.setValue(0)
+
+    # Constitution score
+    _constitutionSpinBoxLabel = QLabel('Constitution:')
+    self.constitutionSpinBox = QSpinBox()
+    self.constitutionSpinBox.setMinimum(1)
+    self.constitutionSpinBox.setMaximum(30)
+    self.constitutionSpinBox.setValue(1)
+
+    _constitutionModSpinBoxLabel = QLabel('Mod:')
+    self.constitutionModSpinBox = QSpinBox()
+    self.constitutionModSpinBox.setMinimum(0)
+    self.constitutionModSpinBox.setMaximum(3)
+    self.constitutionModSpinBox.setValue(0)
+
+    # Charisma score
+    _charismaSpinBoxLabel = QLabel('Charisma:')
+    self.charismaSpinBox = QSpinBox()
+    self.charismaSpinBox.setMinimum(1)
+    self.charismaSpinBox.setMaximum(30)
+    self.charismaSpinBox.setValue(1)
+
+    _charismaModSpinBoxLabel = QLabel('Mod:')
+    self.charismaModSpinBox = QSpinBox()
+    self.charismaModSpinBox.setMinimum(0)
+    self.charismaModSpinBox.setMaximum(3)
+    self.charismaModSpinBox.setValue(0)
+
+    # COMBAT #
+
+    # Character HD
+    _hdSpinBoxLabel = QLabel('HD:')
+    self.hdSpinBox = QSpinBox()
+    self.hdSpinBox.setMinimum(1)
+    self.hdSpinBox.setMaximum(9)
+    self.hdSpinBox.setValue(1)
+
+    # Character HP
+    _hpLabelLabel = QLabel('Hit Points:')
+    self.hpLabel = QLabel()
+
+    # THAC0
+    _thac0SpinBoxLabel = QLabel('THAC0:')
+    self.thac0SpinBox = QSpinBox()
+    self.thac0SpinBox.setMinimum(5)
+    self.thac0SpinBox.setMaximum(20)
+    self.thac0SpinBox.setValue(20)
+
+    # Character AC
+    _acSpinBoxLabel = QLabel('AC:')
+    self.acSpinBox = QSpinBox()
+    self.acSpinBox.setMinimum(-10)
+    self.acSpinBox.setMaximum(20)
+    self.acSpinBox.setValue(20)
+
+    # AC Bonus
+    _acBonusLabelLabel = QLabel('AC Bonus:')
+    self.acBonusLabel = QLabel()
+
+    #Unarmored AC
+    _unarmoredACLabelLabel = QLabel('Unarmored AC:')
+    self.unarmoredACLabel = QLabel()
+
+    # Melee Bonus
+    _meleeBonusLabel = QLabel('Melee Bonus:')
+    self.meleeBonusSpinBox = QSpinBox()
+    self.meleeBonusSpinBox.setMinimum(0)
+    self.meleeBonusSpinBox.setMaximum(3)
+    self.meleeBonusSpinBox.setValue(0)
+
+    # Missile Bonus
+    _missileBonusLabel = QLabel('Missile Bonus:')
+    self.missileBonusSpinBox = QSpinBox()
+    self.missileBonusSpinBox.setMinimum(0)
+    self.missileBonusSpinBox.setMaximum(3)
+    self.missileBonusSpinBox.setValue(0)
+
+    # SAVING THROWS #
+    _minSave = 2
+    _maxSave = 16
+    _savePoisonDeathSpinBoxLabel = QLabel('Death, Poison:')
+    self.savePoisonDeathSpinBox = QSpinBox()
+    self.savePoisonDeathSpinBox.setMinimum(_minSave)
+    self.savePoisonDeathSpinBox.setMaximum(_maxSave)
+    self.savePoisonDeathSpinBox.setValue(_maxSave)
+    _saveMagicWandsSpinBoxLabel = QLabel('Magic Wands:')
+    self.saveMagicWandsSpinBox =  QSpinBox()
+    self.saveMagicWandsSpinBox.setMinimum(_minSave)
+    self.saveMagicWandsSpinBox.setMaximum(_maxSave)
+    self.saveMagicWandsSpinBox.setValue(_maxSave)
+    _saveParalysisPetrificationSpinBoxLabel = QLabel('Paralysis, Petrification:')
+    self.saveParalysisPetrificationSpinBox =  QSpinBox()
+    self.saveParalysisPetrificationSpinBox.setMinimum(_minSave)
+    self.saveParalysisPetrificationSpinBox.setMaximum(_maxSave)
+    self.saveParalysisPetrificationSpinBox.setValue(_maxSave)
+    _saveBreathAttacksSpinBoxLabel = QLabel('Breath Attacks:')
+    self.saveBreathAttacksSpinBox =  QSpinBox()
+    self.saveBreathAttacksSpinBox.setMinimum(_minSave)
+    self.saveBreathAttacksSpinBox.setMaximum(_maxSave)
+    self.saveBreathAttacksSpinBox.setValue(_maxSave)
+    _saveSpellsRodsStavesSpinBoxLabel = QLabel('Spells, Magic Rods and Staves:')
+    self.saveSpellsRodsStavesSpinBox =  QSpinBox()
+    self.saveSpellsRodsStavesSpinBox.setMinimum(_minSave)
+    self.saveSpellsRodsStavesSpinBox.setMaximum(_maxSave)
+    self.saveSpellsRodsStavesSpinBox.setValue(_maxSave)
+    _wisdomModifierToSaveVsMagicLabel = QLabel('Wisdom modifier to saves vs. magic:')
+    self.wisdomModifierToSaveVsMagicSpinBox =  QSpinBox()
+    self.wisdomModifierToSaveVsMagicSpinBox.setMinimum(0)
+    self.wisdomModifierToSaveVsMagicSpinBox.setMaximum(3)
+    self.wisdomModifierToSaveVsMagicSpinBox.setValue(0)
+
+    # ADVENTURING SKILLS #
+
+    # Foraging In The Wild
+    _foragingSkillLabel = QLabel('Forage In The Wild:')
+    self.foragingSkillSpinBox = QSpinBox()
+    self.foragingSkillSpinBox.setMinimum(1)
+    self.foragingSkillSpinBox.setMaximum(6)
+    self.foragingSkillSpinBox.setValue(1)
+
+    # Find Room Trap
+    _findRoomTrapSkillLabel = QLabel('Find Room Trap:')
+    self.findRoomTrapSkillSpinBox = QSpinBox()
+    self.findRoomTrapSkillSpinBox.setMinimum(1)
+    self.findRoomTrapSkillSpinBox.setMaximum(6)
+    self.findRoomTrapSkillSpinBox.setValue(1)
+
+    # Hunt In The Wild
+    _huntingSkillLabel = QLabel('Hunt In The Wild:')
+    self.huntingSkillSpinBox = QSpinBox()
+    self.huntingSkillSpinBox.setMinimum(1)
+    self.huntingSkillSpinBox.setMaximum(6)
+    self.huntingSkillSpinBox.setValue(1)
+
+    # Listen At Door
+    _listenAtDoorSkillLabel = QLabel('Listen At Door:')
+    self.listenAtDoorSkillSpinBox = QSpinBox()
+    self.listenAtDoorSkillSpinBox.setMinimum(1)
+    self.listenAtDoorSkillSpinBox.setMaximum(6)
+    self.listenAtDoorSkillSpinBox.setValue(1)
+
+    # Foraging
+    _openStuckDoorSkillLabel = QLabel('Open Stuck Door:')
+    self.openStuckDoorSkillSpinBox = QSpinBox()
+    self.openStuckDoorSkillSpinBox.setMinimum(1)
+    self.openStuckDoorSkillSpinBox.setMaximum(6)
+    self.openStuckDoorSkillSpinBox.setValue(1)
+
+    # Foraging
+    _findSecretDoorSkillLabel = QLabel('Find Secret Door:')
+    self.findSecretDoorSkillSpinBox = QSpinBox()
+    self.findSecretDoorSkillSpinBox.setMinimum(1)
+    self.findSecretDoorSkillSpinBox.setMaximum(6)
+    self.findSecretDoorSkillSpinBox.setValue(1)
 
     ## Sub Group boxes
 
@@ -268,44 +397,211 @@ class CharacterBuildWidget(QWidget):
     self.generalGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.generalGroupBoxLayout.addWidget(_nameLineEditLabel, 0, 0)
     self.generalGroupBoxLayout.addWidget(self.nameLineEdit, 0, 1)
+    self.generalGroupBoxLayout.addWidget(_titleLineEditLabel, 0, 2)
+    self.generalGroupBoxLayout.addWidget(self.titleLineEdit, 0, 3)
     self.generalGroupBoxLayout.addWidget(_classLineEditLabel, 1, 0)
     self.generalGroupBoxLayout.addWidget(self.classLineEdit, 1, 1)
+    self.generalGroupBoxLayout.addWidget(_alignmentComboboxLabel, 1, 2)
+    self.generalGroupBoxLayout.addWidget(self.alignmentComboBox, 1, 3)
     self.generalGroupBoxLayout.addWidget(_raceLineEditLabel, 2, 0)
     self.generalGroupBoxLayout.addWidget(self.raceLineEdit, 2, 1)
+    self.generalGroupBoxLayout.addWidget(_ageLineEditLabel, 2, 2)
+    self.generalGroupBoxLayout.addWidget(self.ageLineEdit, 2, 3)
     self.generalGroupBoxLayout.addWidget(_levelLineEditLabel, 3, 0)
     self.generalGroupBoxLayout.addWidget(self.levelLineEdit, 3, 1)
-    self.generalGroupBoxLayout.addWidget(_hpSpinBoxLabel, 4, 0)
-    self.generalGroupBoxLayout.addWidget(self.hpSpinBox, 4, 1)
+    self.generalGroupBoxLayout.addWidget(_heightLineEditLabel, 3, 2)
+    self.generalGroupBoxLayout.addWidget(self.heightLineEdit, 3, 3)
+    self.generalGroupBoxLayout.addWidget(_xpLineEditLabel, 4, 0)
+    self.generalGroupBoxLayout.addWidget(self.xpLineEdit, 4, 1)
+    self.generalGroupBoxLayout.addWidget(_weightLineEditLabel, 4, 2)
+    self.generalGroupBoxLayout.addWidget(self.weightLineEdit, 4, 3)
+    self.generalGroupBoxLayout.addWidget(_startingWealthSpinBoxLabel, 5, 0)
+    self.generalGroupBoxLayout.addWidget(self.startingWealthSpinBox, 5, 1)
+
+    self.generalGroupBoxLayout.setColumnStretch(0, 1)
+    self.generalGroupBoxLayout.setColumnStretch(1, 2)
+    self.generalGroupBoxLayout.setColumnStretch(2, 1)
+    self.generalGroupBoxLayout.setColumnStretch(3, 2)
 
     self.generalGroupBox = QGroupBox()
     self.generalGroupBox.setTitle('General')
-    self.generalGroupBox.setMaximumSize(400, 300)
     self.generalGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.generalGroupBox.setLayout(self.generalGroupBoxLayout)
+
+    # Abilities group box
+    self.abilitiesGroupBoxLayout = QGridLayout()
+    self.abilitiesGroupBoxLayout.setSpacing(20)
+    self.abilitiesGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.abilitiesGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.abilitiesGroupBoxLayout.addWidget(_strengthSpinBoxLabel, 0, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.strengthSpinBox, 0, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_strengthModSpinBoxLabel, 0, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.strengthModSpinBox, 0, 3)
+    self.abilitiesGroupBoxLayout.addWidget(_intelligenceSpinBoxLabel, 1, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.intelligenceSpinBox, 1, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_intelligenceModSpinBoxLabel, 1, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.intelligenceModSpinBox, 1, 3)
+    self.abilitiesGroupBoxLayout.addWidget(_wisdomSpinBoxLabel, 2, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.wisdomSpinBox, 2, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_wisdomModSpinBoxLabel, 2, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.wisdomModSpinBox, 2, 3)
+    self.abilitiesGroupBoxLayout.addWidget(_dexteritySpinBoxLabel, 3, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.dexteritySpinBox, 3, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_dexterityModSpinBoxLabel, 3, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.dexterityModSpinBox, 3, 3)
+    self.abilitiesGroupBoxLayout.addWidget(_constitutionSpinBoxLabel, 4, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.constitutionSpinBox, 4, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_constitutionModSpinBoxLabel, 4, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.constitutionModSpinBox, 4, 3)
+    self.abilitiesGroupBoxLayout.addWidget(_charismaSpinBoxLabel, 5, 0)
+    self.abilitiesGroupBoxLayout.addWidget(self.charismaSpinBox, 5, 1)
+    self.abilitiesGroupBoxLayout.addWidget(_charismaModSpinBoxLabel, 5, 2)
+    self.abilitiesGroupBoxLayout.addWidget(self.charismaModSpinBox, 5, 3)
+
+    self.abilitiesGroupBoxLayout.setColumnStretch(0, 1)
+    self.abilitiesGroupBoxLayout.setColumnStretch(1, 1)
+    self.abilitiesGroupBoxLayout.setColumnStretch(2, 1)
+    self.abilitiesGroupBoxLayout.setColumnStretch(3, 1)
+    self.abilitiesGroupBoxLayout.setColumnStretch(4, 2)
+
+    self.abilitiesGroupBox = QGroupBox()
+    self.abilitiesGroupBox.setTitle('Abilities')
+    self.abilitiesGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.abilitiesGroupBox.setLayout(self.abilitiesGroupBoxLayout)
+
+    # Movement group box
+    self.movementGroupBoxLayout = QGridLayout()
+    self.movementGroupBoxLayout.setSpacing(20)
+    self.movementGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.movementGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.movementGroupBoxLayout.addWidget(_movementOverlandLabelLabel, 0, 0)
+    self.movementGroupBoxLayout.addWidget(self.movementOverlandLabel, 0, 1)
+    self.movementGroupBoxLayout.addWidget(_movementExploration, 1, 0)
+    self.movementGroupBoxLayout.addWidget(self.movementExplorationLineEdit, 1, 1)
+    self.movementGroupBoxLayout.addWidget(_movementEncounterLabelLabel, 2, 0)
+    self.movementGroupBoxLayout.addWidget(self.movementEncounterLabel, 2, 1)
+
+    self.movementGroupBoxLayout.setColumnStretch(0, 1)
+    self.movementGroupBoxLayout.setColumnStretch(1, 1)
+    self.movementGroupBoxLayout.setColumnStretch(2, 2)
+
+    self.movementGroupBox = QGroupBox()
+    self.movementGroupBox.setTitle('Movement')
+    self.movementGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.movementGroupBox.setLayout(self.movementGroupBoxLayout)
+
+    # Combat group box
+    self.combatGroupBoxLayout = QGridLayout()
+    self.combatGroupBoxLayout.setSpacing(20)
+    self.combatGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.combatGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.combatGroupBoxLayout.addWidget(_hdSpinBoxLabel, 0, 0)
+    self.combatGroupBoxLayout.addWidget(self.hdSpinBox, 0, 1)
+    self.combatGroupBoxLayout.addWidget(_hpLabelLabel, 0, 2)
+    self.combatGroupBoxLayout.addWidget(self.hpLabel, 0, 3)
+    self.combatGroupBoxLayout.addWidget(_thac0SpinBoxLabel, 1, 0)
+    self.combatGroupBoxLayout.addWidget(self.thac0SpinBox, 1, 1)
+    self.combatGroupBoxLayout.addWidget(_acSpinBoxLabel, 2, 0)
+    self.combatGroupBoxLayout.addWidget(self.acSpinBox, 2, 1)
+    self.combatGroupBoxLayout.addWidget(_acBonusLabelLabel, 2, 2)
+    self.combatGroupBoxLayout.addWidget(self.acBonusLabel, 2, 3)
+    self.combatGroupBoxLayout.addWidget(_unarmoredACLabelLabel, 2, 4)
+    self.combatGroupBoxLayout.addWidget(self.unarmoredACLabel, 2, 5)
+    self.combatGroupBoxLayout.addWidget(_meleeBonusLabel, 3, 0)
+    self.combatGroupBoxLayout.addWidget(self.meleeBonusSpinBox, 3, 1)
+    self.combatGroupBoxLayout.addWidget(_missileBonusLabel, 4, 0)
+    self.combatGroupBoxLayout.addWidget(self.missileBonusSpinBox, 4, 1)
+
+    self.combatGroupBoxLayout.setColumnStretch(0, 1)
+    self.combatGroupBoxLayout.setColumnStretch(1, 1)
+    self.combatGroupBoxLayout.setColumnStretch(2, 1)
+    self.combatGroupBoxLayout.setColumnStretch(3, 1)
+    self.combatGroupBoxLayout.setColumnStretch(4, 1)
+    self.combatGroupBoxLayout.setColumnStretch(5, 1)
+    self.combatGroupBoxLayout.setColumnStretch(6, 1)
+
+    self.combatGroupBox = QGroupBox()
+    self.combatGroupBox.setTitle('Combat')
+    self.combatGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.combatGroupBox.setLayout(self.combatGroupBoxLayout)
+
+    # Saving Throw group box
+    self.saveGroupBoxLayout = QGridLayout()
+    self.saveGroupBoxLayout.setSpacing(20)
+    self.saveGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.saveGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.saveGroupBoxLayout.addWidget(_savePoisonDeathSpinBoxLabel, 0, 0)
+    self.saveGroupBoxLayout.addWidget(self.savePoisonDeathSpinBox, 0, 1)
+    self.saveGroupBoxLayout.addWidget(_saveMagicWandsSpinBoxLabel, 1, 0)
+    self.saveGroupBoxLayout.addWidget(self.saveMagicWandsSpinBox, 1, 1)
+    self.saveGroupBoxLayout.addWidget(_saveParalysisPetrificationSpinBoxLabel, 2, 0)
+    self.saveGroupBoxLayout.addWidget(self.saveParalysisPetrificationSpinBox, 2, 1)
+    self.saveGroupBoxLayout.addWidget(_saveBreathAttacksSpinBoxLabel, 3, 0)
+    self.saveGroupBoxLayout.addWidget(self.saveBreathAttacksSpinBox, 3, 1)
+    self.saveGroupBoxLayout.addWidget(_saveSpellsRodsStavesSpinBoxLabel, 4, 0)
+    self.saveGroupBoxLayout.addWidget(self.saveSpellsRodsStavesSpinBox, 4, 1)
+    self.saveGroupBoxLayout.addWidget(_wisdomModifierToSaveVsMagicLabel, 5, 0)
+    self.saveGroupBoxLayout.addWidget(self.wisdomModifierToSaveVsMagicSpinBox, 5, 1)
+
+    self.saveGroupBoxLayout.setColumnStretch(0, 1)
+    self.saveGroupBoxLayout.setColumnStretch(1, 1)
+
+    self.saveGroupBox = QGroupBox()
+    self.saveGroupBox.setTitle('Saving Throws')
+    self.saveGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.saveGroupBox.setLayout(self.saveGroupBoxLayout)
+
+    # Adventuring Skills group box
+    self.adventureSkillsGroupBoxLayout = QGridLayout()
+    self.adventureSkillsGroupBoxLayout.setSpacing(20)
+    self.adventureSkillsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.adventureSkillsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.adventureSkillsGroupBoxLayout.addWidget(_foragingSkillLabel, 0, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.foragingSkillSpinBox, 0, 1)
+    self.adventureSkillsGroupBoxLayout.addWidget(_findRoomTrapSkillLabel, 1, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.findRoomTrapSkillSpinBox, 1, 1)
+    self.adventureSkillsGroupBoxLayout.addWidget(_huntingSkillLabel, 2, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.huntingSkillSpinBox, 2, 1)
+    self.adventureSkillsGroupBoxLayout.addWidget(_listenAtDoorSkillLabel, 3, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.listenAtDoorSkillSpinBox, 3, 1)
+    self.adventureSkillsGroupBoxLayout.addWidget(_openStuckDoorSkillLabel, 4, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.openStuckDoorSkillSpinBox, 4, 1)
+    self.adventureSkillsGroupBoxLayout.addWidget(_findSecretDoorSkillLabel, 5, 0)
+    self.adventureSkillsGroupBoxLayout.addWidget(self.findSecretDoorSkillSpinBox, 5, 1)
+
+
+    self.adventureSkillsGroupBoxLayout.setColumnStretch(0, 1)
+    self.adventureSkillsGroupBoxLayout.setColumnStretch(1, 1)
+    self.adventureSkillsGroupBoxLayout.setColumnStretch(2, 2)
+
+    self.adventureSkillsGroupBox = QGroupBox()
+    self.adventureSkillsGroupBox.setTitle('Adventuring Skills')
+    self.adventureSkillsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+    self.adventureSkillsGroupBox.setLayout(self.adventureSkillsGroupBoxLayout)
+
 
     ## Finish character group box
     self.characterGroupBoxLayout = QGridLayout()
     self.characterGroupBoxLayout.setSpacing(20)
     self.characterGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
     self.characterGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.characterGroupBoxLayout.addWidget(self.generalGroupBox, 1, 0)
+    self.characterGroupBoxLayout.addWidget(self.generalGroupBox, 0, 0)
+    self.characterGroupBoxLayout.addWidget(self.abilitiesGroupBox, 0, 1)
+    self.characterGroupBoxLayout.addWidget(self.movementGroupBox, 0, 2)
+    self.characterGroupBoxLayout.addWidget(self.combatGroupBox, 1, 0)
+    self.characterGroupBoxLayout.addWidget(self.saveGroupBox, 1, 1)
+    self.characterGroupBoxLayout.addWidget(self.adventureSkillsGroupBox, 1, 2)
 
-    self.characterGroupBoxLayout.addWidget(_strengthSpinBoxLabel, 5, 0)
-    self.characterGroupBoxLayout.addWidget(self.strengthSpinBox, 5, 1)
-    self.characterGroupBoxLayout.addWidget(_intelligenceSpinBoxLabel, 6, 0)
-    self.characterGroupBoxLayout.addWidget(self.intelligenceSpinBox, 6, 1)
-    self.characterGroupBoxLayout.addWidget(_wisdomSpinBoxLabel, 7, 0)
-    self.characterGroupBoxLayout.addWidget(self.wisdomSpinBox, 7, 1)
-    self.characterGroupBoxLayout.addWidget(_dexteritySpinBoxLabel, 8, 0)
-    self.characterGroupBoxLayout.addWidget(self.dexteritySpinBox, 8, 1)
-    self.characterGroupBoxLayout.addWidget(_constitutionSpinBoxLabel, 9, 0)
-    self.characterGroupBoxLayout.addWidget(self.constitutionSpinBox, 9, 1)
-    self.characterGroupBoxLayout.addWidget(_charismaSpinBoxLabel, 10, 0)
-    self.characterGroupBoxLayout.addWidget(self.charismaSpinBox, 10, 1)
+    self.characterGroupBoxLayout.setColumnStretch(0, 3)
+    self.characterGroupBoxLayout.setColumnStretch(1, 2)
+    self.characterGroupBoxLayout.setColumnStretch(2, 2)
+    self.characterGroupBoxLayout.setRowStretch(0, 1)
+    self.characterGroupBoxLayout.setRowStretch(1, 1)
+    self.characterGroupBoxLayout.setRowStretch(2, 2)
 
-
-    self.characterGroupBoxLayout.addWidget(_ageLineEditLabel, 11, 0)
-    self.characterGroupBoxLayout.addWidget(self.ageLineEdit, 11, 1)
+    self.characterGroupBox = QGroupBox()
+    self.characterGroupBox.setTitle('Character')
+    self.characterGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
 
     self.characterGroupBox.setLayout(self.characterGroupBoxLayout)
 
@@ -316,10 +612,50 @@ class CharacterBuildWidget(QWidget):
     _mainGridLayout.addWidget(_headerLabel, 1, 0)
     _mainGridLayout.addWidget(self.settingsGroupBox, 2, 0)
     _mainGridLayout.addWidget(self.characterGroupBox, 2, 1)
+
+    _mainGridLayout.setColumnStretch(0, 1)
+    _mainGridLayout.setColumnStretch(1, 3)
     self.setLayout(_mainGridLayout)
 
   def handleClearButton(self):
-    pass
+    self.nameLineEdit.clear()
+    self.classLineEdit.clear()
+    self.raceLineEdit.clear()
+    self.levelLineEdit.clear()
+    self.xpLineEdit.clear()
+    self.startingWealthSpinBox.setValue(self.startingWealthSpinBox.minimum())
+    self.titleLineEdit.clear()
+    self.alignmentComboBox.setCurrentIndex(0)
+    self.ageLineEdit.clear()
+    self.heightLineEdit.clear()
+    self.weightLineEdit.clear()
+    self.strengthSpinBox.setValue(self.strengthSpinBox.minimum())
+    self.intelligenceSpinBox.setValue(self.intelligenceSpinBox.minimum())
+    self.wisdomSpinBox.setValue(self.wisdomSpinBox.minimum())
+    self.dexteritySpinBox.setValue(self.dexteritySpinBox.minimum())
+    self.constitutionSpinBox.setValue(self.constitutionSpinBox.minimum())
+    self.charismaSpinBox.setValue(self.charismaSpinBox.minimum())
+    self.movementOverlandLabel.setText('')
+    self.movementExplorationLineEdit.clear()
+    self.movementEncounterLabel.setText('')
+    self.hdSpinBox.setValue(self.hdSpinBox.minimum())
+    self.hpLabel.setText('')
+    self.thac0SpinBox.setValue(self.thac0SpinBox.maximum())
+    self.acSpinBox.setValue(self.acSpinBox.maximum())
+    self.acBonusLabel.setText('')
+    self.meleeBonusSpinBox.setValue(self.meleeBonusSpinBox.minimum())
+    self.missileBonusSpinBox.setValue(self.missileBonusSpinBox.minimum())
+    self.savePoisonDeathSpinBox.setValue(self.savePoisonDeathSpinBox.maximum())
+    self.saveMagicWandsSpinBox.setValue(self.saveMagicWandsSpinBox.maximum())
+    self.saveParalysisPetrificationSpinBox.setValue(self.saveParalysisPetrificationSpinBox.maximum())
+    self.saveBreathAttacksSpinBox.setValue(self.saveBreathAttacksSpinBox.maximum())
+    self.saveSpellsRodsStavesSpinBox.setValue(self.saveSpellsRodsStavesSpinBox.maximum())
+    self.foragingSkillSpinBox.setValue(self.foragingSkillSpinBox.minimum())
+    self.findRoomTrapSkillSpinBox.setValue(self.findRoomTrapSkillSpinBox.minimum())
+    self.huntingSkillSpinBox.setValue(self.huntingSkillSpinBox.minimum())
+    self.listenAtDoorSkillSpinBox.setValue(self.listenAtDoorSkillSpinBox.minimum())
+    self.openStuckDoorSkillSpinBox.setValue(self.openStuckDoorSkillSpinBox.minimum())
+    self.findSecretDoorSkillSpinBox.setValue(self.findSecretDoorSkillSpinBox.minimum())
 
   def handleSaveToFileButton(self):
     _fileDialog = QFileDialog()
@@ -339,38 +675,59 @@ class CharacterBuildWidget(QWidget):
       _file.write(self.weatherOutputPlainText.toPlainText())
 
   def handleGenerateButton(self):
-    self.nameLineEdit.setText('Gary Greyhawk')
+    # Name
+    _raceId = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='ID', valueColumnName='NAME', value=self.raceComboBox.currentText())
+    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
+    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
+
+    _fullNames = []
+    for i in range(len(_firstNames)):
+      _fullNames.append(f'{_firstNames[i]} {_lastNames[i]}')
+
+    _name = choice(_fullNames) if len(_fullNames) > 0 else choice(['John Doe', 'Jane Doe'])
+
+    self.nameLineEdit.setText(_name)
+    # Class
     self.classLineEdit.setText(self.classComboBox.currentText())
+    # Race
     self.raceLineEdit.setText(self.raceComboBox.currentText())
+    # level
     self.levelLineEdit.setText(str(self.levelSpinBox.value()))
 
+    # HP
     _rollHpTwice = False
     if self.raceComboBox.currentText() == 'Human':
       _rollHpTwice = True
 
+    _hds = int(self.levelLineEdit.text()) if int(self.levelLineEdit.text()) < 9 else 9
+    self.hdSpinBox.setValue(_hds)
+
     _hpScore = 0
-    for i in range(self.levelSpinBox.value()):
+    for i in range(self.hdSpinBox.value()):
       _dieHpScore = hp.rollDice(1, 8)
       if _rollHpTwice:
         _dieScore = max(_dieHpScore, hp.rollDice(1, 8))
       _hpScore += _dieHpScore
-    self.hpSpinBox.setValue(_hpScore)
+    self.hpLabel.setText(f'HP: {str(_hpScore)}')
 
-    _strengthScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.strengthSpinBox.setValue(_strengthScore)
-    _intelligenceScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.intelligenceSpinBox.setValue(_intelligenceScore)
-    _wisdomScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.wisdomSpinBox.setValue(_wisdomScore)
-    _dexterityScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.dexteritySpinBox.setValue(_dexterityScore)
-    _constitutionScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.constitutionSpinBox.setValue(_constitutionScore)
-    _charismaScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5)
-    self.charismaSpinBox.setValue(_charismaScore)
-
+    # Age
     _ageScore = hp.rollDice(3, 20)
     self.ageLineEdit.setText(str(_ageScore))
+
+    # Ability Scores
+    _reRollThreshold = 5
+    _strengthScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.strengthSpinBox.setValue(_strengthScore)
+    _intelligenceScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.intelligenceSpinBox.setValue(_intelligenceScore)
+    _wisdomScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.wisdomSpinBox.setValue(_wisdomScore)
+    _dexterityScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.dexteritySpinBox.setValue(_dexterityScore)
+    _constitutionScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.constitutionSpinBox.setValue(_constitutionScore)
+    _charismaScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
+    self.charismaSpinBox.setValue(_charismaScore)
 
   def handleRandomCharacterButton(self):
     pass
@@ -556,7 +913,7 @@ class DungeonCreatorWidget(QWidget):
     self.handleDungeonSizeComboBoxChanged()
 
   def generateTreasure(self):
-    _treasureId = self.treasureTypeModel.data(self.treasureTypeModel.index(self.treasureTypeComboBox.currentIndex(), self.treasureTypeModel.sourceModel().record().indexOf('ID'), self.treasureTypeComboBox.rootModelIndex()))
+    _treasureId = self.treasureTypeModel._data(self.treasureTypeModel.index(self.treasureTypeComboBox.currentIndex(), self.treasureTypeModel.sourceModel().record().indexOf('ID'), self.treasureTypeComboBox.rootModelIndex()))
 
     _treasureParameterTypeId = db.getGameParameterTypeId(parameterName='TREASURE')
     _treasureItems = db.query(statement=f'select VALUE_3 as ITEM, VALUE_2 as ITEM_TYPE, VALUE_4 as PROBABILITY, VALUE_5 as ITEM_GROUP, VALUE_6 as GROUP_LOGICAL_OPERATOR from GAME_PARAMETER where TYPE = ? and VALUE_1 = ? order by VALUE_5, VALUE_6 desc', args=(_treasureParameterTypeId, _treasureId), one=False)
@@ -774,7 +1131,7 @@ class DungeonCreatorWidget(QWidget):
     self.outputPlainText.appendPlainText(f'DUNGEON LAYOUT')
     self.outputPlainText.appendPlainText('=' * len('DUNGEON LAYOUT') + '\n')
 
-    _numberOfLevelsValueStatement = self.dungeonSizeModel.data(self.dungeonSizeModel.index(self.dungeonSizeComboBox.currentIndex(), self.dungeonSizeModel.sourceModel().record().indexOf('VALUE_2'), self.dungeonSizeComboBox.rootModelIndex()))
+    _numberOfLevelsValueStatement = self.dungeonSizeModel._data(self.dungeonSizeModel.index(self.dungeonSizeComboBox.currentIndex(), self.dungeonSizeModel.sourceModel().record().indexOf('VALUE_2'), self.dungeonSizeComboBox.rootModelIndex()))
     _numberOfLevelsResult = hp.splitAndProcessValueStatement(_numberOfLevelsValueStatement)
 
     _numberOfRoomsValueStatement = self.dungeonSizeModel.data(self.dungeonSizeModel.index(self.dungeonSizeComboBox.currentIndex(), self.dungeonSizeModel.sourceModel().record().indexOf('VALUE_3'), self.dungeonSizeComboBox.rootModelIndex()))
@@ -838,641 +1195,6 @@ class DungeonCreatorWidget(QWidget):
     # Remove row from level table
     elif self.numberOfLevels < _oldNumber:
       self.levelSettingTableWidget.hideRow(self.numberOfLevels)
-
-class FoundryDataManagerWidget(QWidget):
-  def __init__(self):
-    super().__init__()
-
-    # Fields
-    self.currentItemCsvFilePath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/csv/osr_armor_weapons_equipment_export.csv'
-    self.currentActorCsvFilePath = f'{apc.ROOT_INPUT_PATH}/actors/csv/character_export.csv'
-    self.imageImportPath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/images'
-    self.jsonExportPath = f'{apc.JSON_EXPORT_PATH}/foundry_module_osr_armor_weapons_equipment'
-    self.itemKeyLength = 16 # Foundry says it must be 16 digits
-    self.itemData = []
-    self.itemKeys = []
-    self.actorData = []
-    self.loadItemKeysFromDatabase()
-
-    # UI Control
-    _groupBoxMinWidth = 600
-    _groupBoxMaxWidth = 900
-    _groupBoxMinHeight = 100
-    _groupBoxMaxHeight = 150
-    _fontSizeSmall = 10
-    _fontSizeNormal = 12
-    _fontSizeLarge = 14
-
-    # Foundry json objects
-    self.foundryItemTagTemplate = {'title': '', 'value': ''}
-
-    # Header Label
-    _headerLabel = QLabel('Foundry Data Manager')
-    _headerLabel.setFont(QFont('Ubuntu Sans', _fontSizeLarge))
-    _headerLabel.setMaximumSize(500, 20)
-
-    ## Item Manager
-
-    # CSV-File label and selection button
-    _itemCsvFileSelectionLabel = QLabel('CSV File:')
-    _itemCsvFileSelectionLabel.setFont(QFont('Ubuntu Sans', _fontSizeNormal))
-    _itemCsvFileSelectionLabel.setMaximumSize(70, 20)
-
-    self.itemCsvFileSelectionButton = QPushButton("Open CSV File")
-    self.itemCsvFileSelectionButton.setMinimumWidth(150)
-    self.itemCsvFileSelectionButton.clicked.connect(self.handleItemCsvFileSelectionButton)
-
-    # CSV-File display label
-    self.itemCsvFileDisplayLabel = QLabel(f'({self.shortenImportFilePath(self.currentItemCsvFilePath)})')
-    self.itemCsvFileDisplayLabel.setFont(QFont('Ubuntu Sans', _fontSizeSmall))
-    self.itemCsvFileDisplayLabel.setMinimumSize(450, 10)
-
-    # CSV import button
-    self.itemCsvImportButton = QPushButton("Import CSV")
-    self.itemCsvImportButton.setMinimumWidth(150)
-    self.itemCsvImportButton.setMaximumWidth(150)
-    self.itemCsvImportButton.clicked.connect(self.handleItemCsvImportButton)
-
-    # Save to db button
-    self.itemSaveToDbButton = QPushButton("Save To Database")
-    self.itemSaveToDbButton.setMinimumWidth(150)
-    self.itemSaveToDbButton.setMaximumWidth(150)
-    self.itemSaveToDbButton.clicked.connect(self.handleItemSaveToDbButton)
-
-    # Export to json button
-    self.itemExportFromDbToJsonButton = QPushButton("Export From DB To JSON")
-    self.itemExportFromDbToJsonButton.setMinimumWidth(200)
-    self.itemExportFromDbToJsonButton.setMaximumWidth(200)
-    self.itemExportFromDbToJsonButton.clicked.connect(self.handleItemExportFromDbToJsonButton)
-
-    # Copy export to foundry module dir
-    self.itemCopyToFoundryModuleDirButton = QPushButton("Copy To Module Dir")
-    self.itemCopyToFoundryModuleDirButton.setMinimumWidth(170)
-    self.itemCopyToFoundryModuleDirButton.setMaximumWidth(170)
-    self.itemCopyToFoundryModuleDirButton.clicked.connect(self.handleItemCopyToFoundryModuleDirButton)
-
-    # Group Box
-    self.itemDataManagerGroupBox = QGroupBox()
-    self.itemDataManagerGroupBox.setTitle('Items')
-    self.itemDataManagerGroupBox.setMinimumSize(_groupBoxMinWidth, _groupBoxMinHeight)
-    self.itemDataManagerGroupBox.setMaximumSize(_groupBoxMaxWidth, _groupBoxMaxHeight)
-    self.itemDataManagerGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-
-    # Helper layouts
-    _itemCsvFileDisplayLayout = QHBoxLayout()
-    _itemCsvFileDisplayLayout.addWidget(_itemCsvFileSelectionLabel)
-    _itemCsvFileDisplayLayout.addWidget(self.itemCsvFileDisplayLabel)
-
-    # Group box layout
-    self.itemDataManagerGroupBoxLayout = QGridLayout()
-    self.itemDataManagerGroupBoxLayout.setSpacing(20)
-    self.itemDataManagerGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.itemDataManagerGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCsvFileSelectionButton, 0, 0)
-    self.itemDataManagerGroupBoxLayout.addLayout(_itemCsvFileDisplayLayout, 0, 1, 1, 3)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCsvImportButton, 1, 0)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.itemSaveToDbButton, 1, 1)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.itemExportFromDbToJsonButton, 1, 2)
-    self.itemDataManagerGroupBoxLayout.addWidget(self.itemCopyToFoundryModuleDirButton, 1, 3)
-    self.itemDataManagerGroupBox.setLayout(self.itemDataManagerGroupBoxLayout)
-
-    ## Actor Manager
-
-    # CSV-File label and selection button
-    _actorCsvFileSelectionLabel = QLabel('CSV File:')
-    _actorCsvFileSelectionLabel.setFont(QFont('Ubuntu Sans', _fontSizeNormal))
-    _actorCsvFileSelectionLabel.setMaximumSize(70, 20)
-
-    self.actorCsvFileSelectionButton = QPushButton("Open CSV File")
-    self.actorCsvFileSelectionButton.setMinimumWidth(150)
-    self.actorCsvFileSelectionButton.clicked.connect(self.handleActorCsvFileSelectionButton)
-
-    # CSV-File display label
-    self.actorCsvFileDisplayLabel = QLabel(self.shortenImportFilePath(self.currentActorCsvFilePath))
-    self.actorCsvFileDisplayLabel.setFont(QFont('Ubuntu Sans', _fontSizeSmall))
-    self.actorCsvFileDisplayLabel.setMinimumSize(450, 10)
-
-    # CSV import button
-    self.actorCsvImportButton = QPushButton("Import CSV")
-    self.actorCsvImportButton.setMinimumWidth(150)
-    self.actorCsvImportButton.setMaximumWidth(150)
-    self.actorCsvImportButton.clicked.connect(self.handleActorCsvImportButton)
-
-    # Save to db button
-    self.actorSaveToDbButton = QPushButton("Save To Database")
-    self.actorSaveToDbButton.setMinimumWidth(150)
-    self.actorSaveToDbButton.setMaximumWidth(150)
-    self.actorSaveToDbButton.clicked.connect(self.handleActorSaveToDbButton)
-
-    # Export to json button
-    self.actorExportFromDbToJsonButton = QPushButton("Export From DB To JSON")
-    self.actorExportFromDbToJsonButton.setMinimumWidth(200)
-    self.actorExportFromDbToJsonButton.setMaximumWidth(200)
-    self.actorExportFromDbToJsonButton.clicked.connect(self.handleActorExportFromDbToJsonButton)
-
-    # Copy export to foundry module dir
-    self.actorCopyToFoundryModuleDirButton = QPushButton("Copy To Module Dir")
-    self.actorCopyToFoundryModuleDirButton.setMinimumWidth(170)
-    self.actorCopyToFoundryModuleDirButton.setMaximumWidth(170)
-    self.actorCopyToFoundryModuleDirButton.clicked.connect(self.handleActorCopyToFoundryModuleDirButton)
-
-    # Main Group Box
-    self.actorDataManagerGroupBox = QGroupBox()
-    self.actorDataManagerGroupBox.setTitle('Actors')
-    self.actorDataManagerGroupBox.setMinimumSize(_groupBoxMinWidth, _groupBoxMinHeight)
-    self.actorDataManagerGroupBox.setMaximumSize(_groupBoxMaxWidth, _groupBoxMaxHeight)
-    self.actorDataManagerGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-
-    # Helper layouts
-    _actorCsvFileDisplayLayout = QHBoxLayout()
-    _actorCsvFileDisplayLayout.addWidget(_actorCsvFileSelectionLabel)
-    _actorCsvFileDisplayLayout.addWidget(self.actorCsvFileDisplayLabel)
-
-    # Finish actor GroupBox
-    self.actorDataManagerGroupBoxLayout = QGridLayout()
-    self.actorDataManagerGroupBoxLayout.setSpacing(20)
-    self.actorDataManagerGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.actorDataManagerGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCsvFileSelectionButton, 0, 0)
-    self.actorDataManagerGroupBoxLayout.addLayout(_actorCsvFileDisplayLayout, 0, 1, 1, 3)
-    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCsvImportButton, 1, 0)
-    self.actorDataManagerGroupBoxLayout.addWidget(self.actorSaveToDbButton, 1, 1)
-    self.actorDataManagerGroupBoxLayout.addWidget(self.actorExportFromDbToJsonButton, 1, 2)
-    self.actorDataManagerGroupBoxLayout.addWidget(self.actorCopyToFoundryModuleDirButton, 1, 3)
-    self.actorDataManagerGroupBox.setLayout(self.actorDataManagerGroupBoxLayout)
-
-    # Finish setup
-    _mainGridLayout = QGridLayout()
-    _mainGridLayout.setSpacing(20)
-    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    _mainGridLayout.addWidget(_headerLabel, 0, 0)
-    _mainGridLayout.addWidget(self.itemDataManagerGroupBox, 1, 0)
-    _mainGridLayout.addWidget(self.actorDataManagerGroupBox, 2, 0)
-    self.setLayout(_mainGridLayout)
-
-  def handleActorCsvFileSelectionButton(self):
-    _fileDialog = QFileDialog()
-    _fileDialog.setNameFilter('*.csv *.json')
-    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-    _filename = []
-
-    if _fileDialog.exec_():
-      _filename = _fileDialog.selectedFiles()
-      self.currentActorCsvFilePath = _filename[0]
-      self.actorCsvFileDisplayLabel.setText(f'({self.shortenImportFilePath(self.currentActorCsvFilePath)})')
-
-  def handleActorCsvImportButton(self):
-    if not self.currentActorCsvFilePath:
-      logging.info('No actor csv file selected!')
-      return
-
-    self.actorData.clear()
-
-    # Read csv and store in list as dict per row
-    _actorCount = 0
-    logging.info(f'Importing actors from {self.shortenImportFilePath(self.currentActorCsvFilePath)}')
-    with open(file=self.currentActorCsvFilePath, mode='r') as csvFile:
-      _csvData = csv.DictReader(csvFile, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
-      for _row in _csvData:
-        self.actorData.append(_row)
-        _actorCount += 1
-
-    logging.info(f'Imported {_actorCount} items.')
-
-  def handleActorSaveToDbButton(self):
-    pass
-
-  def handleActorCopyToFoundryModuleDirButton(self):
-    pass
-
-  def handleItemCopyToFoundryModuleDirButton(self):
-    _fromPath = f'{self.jsonExportPath}'
-    _toPath = f'{apc.FOUNDRY_INSTALL_DATA_PATH}/{apc.FOUNDRY_MODULE_ROOT_PATH}/{apc.OSR_EQUIPMENT_PACK_NAME}/data/json'
-
-    shutil.rmtree(_toPath)
-    shutil.copytree(_fromPath, _toPath)
-
-  def handleActorExportFromDbToJsonButton(self):
-      self.exportActorsToJson()
-
-  def handleItemExportFromDbToJsonButton(self):
-      self.exportEquipmentToJson()
-
-  def handleItemSaveToDbButton(self):
-    _itemTypeIDs = db.query(statement='select ID, NAME from ITEM_TYPE')
-    _itemTypeDict = {}
-    try:
-      for _typeID in _itemTypeIDs:
-        _itemTypeDict[_typeID['NAME']] = _typeID['ID']
-    except IndexError:
-      logging.info('There were no item type ids found in the database table ITEM_TYPE. No data has been written to the database.')
-      return
-
-    _itemTableColumnString = 'NAME, TYPE, CATEGORY, WEIGHT, COST, ATTRIBUTES, AC, DAMAGE, RANGE_SHORT, RANGE_MEDIUM, RANGE_LONG, DESCRIPTION, IMAGE, TO_FOUNDRY'
-
-    # Get current max ID from ITEM table
-    _currentMaxIdDb = db.query('select SEQ as ID from SQLITE_SEQUENCE where NAME = ?', args=('ITEM', ), one=True)
-    _currentMaxId = 0
-    if _currentMaxIdDb['ID']:
-      _currentMaxId = int(_currentMaxIdDb['ID'])
-
-    for _item in self.itemData:
-      _itemDataDb = db.query(statement='select ID, NAME from ITEM where NAME = ?', args=(_item['NAME'],), one=True)
-      _foundryItemKey = self.getUniqueItemKey(_item['NAME'])
-
-      _itemRangeShort = None if not _item['RANGE_SHORT'] else _item['RANGE_SHORT']
-      _itemRangeMedium = None if not _item['RANGE_MEDIUM'] else _item['RANGE_MEDIUM']
-      _itemRangeLong = None if not _item['RANGE_LONG'] else _item['RANGE_LONG']
-      _itemAC = None if not _item['AC'] else _item['AC']
-      _itemDamage = None if not _item['DAMAGE'] else _item['DAMAGE']
-
-      if _itemDataDb:
-        db.query(statement='update ITEM set CATEGORY=?, WEIGHT=?, COST=?, ATTRIBUTES=?, AC=?, DAMAGE=?, RANGE_SHORT=?, RANGE_MEDIUM=?, RANGE_LONG=?, DESCRIPTION=?, IMAGE=? where ID = ?',
-                 args=(_item['CATEGORY'], _item['WEIGHT'], _item['COST'], _item['ATTRIBUTES'], _itemAC, _itemDamage, _itemRangeShort, _itemRangeMedium, _itemRangeLong, _item['DESCRIPTION'], _item['IMAGE'], _itemDataDb['ID']), commit=False)
-      else:
-        _args = (_item['NAME'], _itemTypeDict[_item['TYPE']], _item['CATEGORY'], _item['WEIGHT'], _item['COST'], _item['ATTRIBUTES'], _itemAC, _itemDamage, _itemRangeShort, _itemRangeMedium, _itemRangeLong, _item['DESCRIPTION'], _item['IMAGE'], True)
-        db.insert(statement=f'insert into ITEM({_itemTableColumnString}) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', args=_args)
-
-        _currentMaxId += 1
-        db.insert(statement=f'insert into FOUNDRY_ITEM_KEYS(ITEM_ID, ITEM_NAME, KEY) values(?, ?, ?)', args=(_currentMaxId, _item['NAME'], _foundryItemKey))
-
-    db.commitChanges()
-
-  def handleItemCsvFileSelectionButton(self):
-    _fileDialog = QFileDialog()
-    _fileDialog.setNameFilter('*.csv *.json')
-    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-    _filename = []
-
-    if _fileDialog.exec_():
-      _filename = _fileDialog.selectedFiles()
-      self.currentItemCsvFilePath = _filename[0]
-      self.itemCsvFileDisplayLabel.setText(f'({self.shortenImportFilePath(self.currentItemCsvFilePath)})')
-
-  def handleItemCsvImportButton(self):
-    if not self.currentItemCsvFilePath:
-      logging.info('No equipment csv file selected!')
-      return
-
-    self.itemData.clear()
-
-    # Read csv and store in list as dict per row
-    _itemCount = 0
-    logging.info(f'Importing items from {self.currentItemCsvFilePath}')
-    with open(file=self.currentItemCsvFilePath, mode='r') as csvFile:
-      _csvData = csv.DictReader(csvFile, fieldnames=None, restkey='OVERFLOW', dialect='excel', delimiter=';', quotechar='"')
-      for _row in _csvData:
-        self.itemData.append(_row)
-        _itemCount += 1
-
-    # Normalized attribute list for all items to save redundant code
-    for _item in self.itemData:
-      _rawAttributeList = _item['ATTRIBUTES'].strip().split(';')
-      _attributeDict = {}
-
-      for _attribute in _rawAttributeList:
-        if ':' in _attribute:
-          _parts = _attribute.split(':')
-          _attributeDict[_parts[0].replace(' ', '').upper()] = _parts[1].replace(',', ', ').strip()
-        else:
-          _attributeDict[_attribute.replace(' ', '').upper()] = True
-
-      _item['ATTRIBUTES'] = _attributeDict
-
-    logging.info(f'Imported {_itemCount} items.')
-
-  def removeFiles(self, path, removeSubDirs=False):
-    _removedFilesCount = 0
-    logging.info(f'Removing files from: {path}')
-    for _fileName in os.listdir(path):
-      _filePath = os.path.join(path, _fileName)
-      if not removeSubDirs and not os.path.isfile(_filePath):
-        continue
-      os.remove(_filePath)
-      _removedFilesCount += 1
-
-    logging.info(f'Removed {_removedFilesCount} files')
-
-
-  def exportActorsToJson(self):
-    # Read json template and store empty version for reset
-    _jsonActorTemplateEmpty = None
-
-    _importPath = f'{apc.ROOT_INPUT_PATH}/actors/json'
-    with open(Path(_importPath) / 'foundry_ose_actor_template.json', mode='r') as file:
-      _jsonActorTemplateEmpty = json.load(file)
-
-    _jsonTemplate = None
-    _actorList = []
-    for _actor in self.actorData:
-      _jsonTemplate = copy.deepcopy(_jsonActorTemplateEmpty)
-      _jsonTemplate['name'] = _actor['NAME']
-      _jsonTemplate['system']['details']['notes'] = f'Race: {_actor['RACE']}'
-      _class = _actor['CLASS']
-      _jsonTemplate['system']['details']['class'] = _class
-      _jsonTemplate['system']['details']['alignment'] = _actor['ALIGNMENT']
-
-      # Level
-      _level = int(_actor['LEVEL'])
-      _jsonTemplate['system']['details']['level'] = _level
-
-      # AC/AAC
-      _jsonTemplate['system']['ac']['value'] = int(_actor['AC']) if _actor['AC'] else 9
-      _jsonTemplate['system']['aac']['value'] = 19 - int(_actor['AC']) if _actor['AC'] else 10
-
-      # HP
-      _hp = int(_actor['HP'])
-      _jsonTemplate['system']['hp']['value'] = _hp
-      _jsonTemplate['system']['hp']['max'] = _hp
-
-      # HD
-      _hd = ''
-      _classUpper = _class.upper()
-      if _classUpper in ('ACROBAT', 'ASSASSIN', 'ILLUSIONIST', 'MAGIC-USER', 'THIEF'):
-        _hd = 'd4'
-      elif _classUpper in ('BARD', 'CLERIC', 'DRUID'):
-        _hd = 'd6'
-      elif _classUpper in ('BARBARIAN', 'FIGHTER', 'KNIGHT', 'PALADIN', 'RANGER'):
-        _hd = 'd8'
-
-      _hdMultiplier = _level if _level <= 8 else 9
-      _hd = f'{_hdMultiplier}{_hd}'
-
-      if _level > 9:
-        _levelAbove9 = _level - 9
-        _levelAbove9Bonus = 0
-        if _classUpper in ('MAGIC-USER', 'CLERIC', 'DRUID', 'ILLUSIONIST'):
-          _levelAbove9Bonus = 1
-        elif _classUpper in ('ACROBAT', 'ASSASSIN', 'BARD', 'FIGHTER', 'KNIGHT', 'PALADIN', 'RANGER', 'THIEF'):
-          _levelAbove9Bonus = 2
-        elif _classUpper == 'BARBARIAN':
-          _levelAbove9Bonus = 3
-
-        _hd = f'{_hd} + {_levelAbove9 * _levelAbove9Bonus}'
-
-      _jsonTemplate['system']['hp']['hd'] = _hd
-
-      # THAC0
-      _thac0 = int(_actor['THAC0'])
-      _jsonTemplate['system']['thac0']['value'] = _thac0
-      _jsonTemplate['system']['thac0']['bba'] = 19 - _thac0
-
-      # Ability Scores
-      _jsonTemplate['system']['scores']['str']['value'] = _actor['STR']
-      _jsonTemplate['system']['scores']['int']['value'] = _actor['INT']
-      _jsonTemplate['system']['scores']['wis']['value'] = _actor['WIS']
-      _jsonTemplate['system']['scores']['dex']['value'] = _actor['DEX']
-      _jsonTemplate['system']['scores']['con']['value'] = _actor['CON']
-      _jsonTemplate['system']['scores']['cha']['value'] = _actor['CHA']
-
-      # Saving Throws
-      _jsonTemplate['system']['saves']['death']['value'] = _actor['S_DP']
-      _jsonTemplate['system']['saves']['wand']['value'] = _actor['S_W']
-      _jsonTemplate['system']['saves']['paralysis']['value'] = _actor['S_P']
-      _jsonTemplate['system']['saves']['breath']['value'] = _actor['S_B']
-      _jsonTemplate['system']['saves']['spell']['value'] = _actor['S_SRS']
-
-      _actorList.append(copy.deepcopy(_jsonTemplate))
-
-    ## Delete all files in target directory
-    _exportPath = Path(apc.JSON_EXPORT_PATH) / 'actors'
-    _exportPath.mkdir(exist_ok=True)
-    self.removeFiles(path=_exportPath, removeSubDirs=False)
-
-    for _actor in _actorList:
-      # Define export dir
-
-      # Write to json file
-      _jsonOutfileName = f'{_actor['name'].lower().replace(' ', '_')}.json'
-      with open(file=Path(_exportPath) / _jsonOutfileName, mode='w') as _jsonFile:
-        json.dump(obj=_actor, fp=_jsonFile, indent=2)
-
-  def exportEquipmentToJson(self):
-    ## Set necessary config values and counters
-    _imagePath = apc.OSR_EQUIPMENT_IMAGE_PATH
-    _imgExtension = 'webp'
-    _itemCount = 0
-
-    ## Gather item images
-    _itemImages = []
-    for _fileName in os.listdir(self.imageImportPath):
-      # Cut away extension and license info
-      for _fileName2 in os.listdir(os.path.join(self.imageImportPath, _fileName)):
-        _name = ''
-        try:
-          _name = _fileName2[0:_fileName2.rindex('.')][0:_fileName2.rindex('_')].replace('_', ' ')
-        except ValueError:
-          logging.info(f'Image {_fileName2} could not be imported!')
-          logging.info(f'Item import has been aborted!')
-          return
-
-        _itemImages.append({'NAME': _name, 'FILENAME': os.path.join(_fileName, _fileName2)})
-
-    ## Fill item json
-
-    # Read json template and store empty version for reset
-    _jsonItemWeaponTemplateEmpty = None
-    _jsonItemArmorTemplateEmpty = None
-    _jsonItemEquipmentTemplateEmpty = None
-
-    _importPath = f'{apc.ROOT_INPUT_PATH}/osr_armor_weapons_equipment/json'
-
-    with open(Path(_importPath) / 'foundry_ose_item_weapon_template.json', mode='r') as file:
-      _jsonItemWeaponTemplateEmpty = json.load(file)
-    with open(Path(_importPath) / 'foundry_ose_item_armor_template.json', mode='r') as file:
-      _jsonItemArmorTemplateEmpty = json.load(file)
-    with open(Path(_importPath) / 'foundry_ose_item_equipment_template.json', mode='r') as file:
-      _jsonItemEquipmentTemplateEmpty = json.load(file)
-
-    _jsonTemplate = None
-    _itemList = {'ARMOR': [], 'WEAPON': [], 'EQUIPMENT': []}
-    for _item in self.itemData:
-      _inputSubDir = ''
-      _itemType = ''
-      if _item['TYPE'].upper() == 'WEAPON':
-        _jsonTemplate = copy.deepcopy(_jsonItemWeaponTemplateEmpty)
-        _itemType = 'WEAPON'
-      elif _item['TYPE'].upper() == 'ARMOR':
-        _jsonTemplate = copy.deepcopy(_jsonItemArmorTemplateEmpty)
-        _itemType = 'ARMOR'
-      elif _item['TYPE'].upper() in ('EQUIPMENT', 'AMMUNITION'):
-        _jsonTemplate = copy.deepcopy(_jsonItemEquipmentTemplateEmpty)
-        _itemType = 'EQUIPMENT'
-
-      ## General
-      _jsonTemplate['name'] = _item['NAME']
-
-      ## OSE specific
-      _jsonTemplate['system']['weight'] = int(_item['WEIGHT'].strip()) if _item['WEIGHT'].strip() else 0
-      _jsonTemplate['system']['cost'] = int(_item['COST'].strip()) if _item['COST'].strip() else 0
-      _jsonTemplate['system']['description'] = _item['DESCRIPTION'].strip()
-
-      # Every item can contain a set of attributes, which can be:
-      #   Only keys (SLOW, MISSILE, MELEE, etc.), they act as a boolean-kind-of flag
-      #   Key-value pairs separated by a colon (Class: Heavy, Quantity: 20, etc.)
-
-      # Default values
-      _jsonTemplate['system']['quantity']['value'] = 1
-
-      # AC
-      if _itemType == 'ARMOR' and _item['AC']:
-        _ac = int(_item['AC'])
-        _jsonTemplate['system']['ac']['value'] = _ac
-        _jsonTemplate['system']['aac']['value'] = 19 - _ac if _item['CATEGORY'].upper() != 'SHIELD' else _ac
-
-      for _key in _item['ATTRIBUTES']:
-        if _key.upper() == 'SLOW':
-          if _item['TYPE'].upper() == 'ARMOR':
-            _jsonTemplate['system']['slow'] = False
-          _jsonTemplate['system']['slow'] = True
-        if _key.upper() == 'MISSILE':
-          _jsonTemplate['system']['missile'] = True
-          _jsonTemplate['system']['range']['short'] = int(_item['RANGE_SHORT'].strip())
-          _jsonTemplate['system']['range']['medium'] = int(_item['RANGE_MEDIUM'])
-          _jsonTemplate['system']['range']['long'] = int(_item['RANGE_LONG'])
-        if _key.upper() == 'MELEE':
-          _jsonTemplate['system']['melee'] = True
-        if _key.upper() == 'QUANTITY':
-          _jsonTemplate['system']['quantity']['value'] = _item['ATTRIBUTES'][_key]
-          _jsonTemplate['system']['quantity']['max'] = _item['ATTRIBUTES'][_key]
-
-        # Weapon specific
-        if _itemType == 'WEAPON':
-          _jsonTemplate['system']['damage'] = _item['DAMAGE'].strip()
-
-        # Armor specific
-        if _itemType == 'ARMOR':
-          # Usually signifies that the item is an actual piece of armor ('Chain Mail', 'Bascinet', 'Boiled Leather', etc.) and not a shield
-          if _item['CATEGORY'].upper() == 'SHIELD':
-            _jsonTemplate['system']['type'] = 'shield'
-          elif _key.upper() == 'CLASS':
-            _jsonTemplate['system']['type'] = _item['ATTRIBUTES'][_key].lower()
-
-        # Equipment specific
-        if _itemType == 'EQUIPMENT':
-          if _item['CATEGORY'].upper() == 'CONTAINER':
-            _jsonTemplate['type'] = 'container'
-
-      if _item['NAME'] == 'Maul':
-        pass
-
-      # Tags
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'BLUNT', 'Blunt', 'Blunt')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'BRACE', 'Brace', 'Brace')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'CHARGE', 'Charge', 'Charge')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'REACH', 'Reach', 'Reach')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'RELOAD', 'Reload', 'Reload')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'SPLASH', 'Splash', 'Splash')
-      self.createAndAddAttributeItemJsonTag(_jsonTemplate, _item['ATTRIBUTES'], 'TWO-HANDED', 'Two-Handed', 'Two-Handed')
-
-      # Define export dir
-      _imageInputSubdir = f'{_itemType.lower()}'
-      _imageInputSubdir = _imageInputSubdir if _itemType != 'WEAPON' else f'{_imageInputSubdir}s'
-      _jsonTemplate['img'] = f'{apc.OSR_EQUIPMENT_IMAGE_PATH}/{_imageInputSubdir}/{_item['IMAGE']}' if _item['IMAGE'] else ''
-
-      # Foundry specific
-      _jsonTemplate['_id'] = self.getUniqueItemKey(_item['NAME'])
-      _jsonTemplate['_key'] = _jsonTemplate['_key'] + _jsonTemplate['_id']
-      _nowInMillis = int(datetime.datetime.now().timestamp() * 1000)
-      _jsonTemplate['_stats']['createdTime'] = _nowInMillis
-      _jsonTemplate['_stats']['modifiedTime'] = _nowInMillis
-
-      _itemList[_itemType].append(copy.deepcopy(_jsonTemplate))
-
-    ## Export item info to json files
-    for _type in _itemList.keys():
-      # Define export dir
-      _exportSubDir = f'osr-{_type.lower()}'
-      _exportSubDir = _exportSubDir if _type != 'WEAPON' else f'{_exportSubDir}s'
-      _exportPath = Path(apc.JSON_EXPORT_PATH) / 'foundry_module_osr_armor_weapons_equipment' /  _exportSubDir
-      _exportPath.mkdir(exist_ok=True)
-
-      ## Delete all files in target directory
-      self.removeFiles(path=_exportPath, removeSubDirs=False)
-
-      for _item in _itemList[_type]:
-        # Write to json file
-        _jsonOutfileName = f'{str(_item['name']).lower().translate(str.maketrans('', '', ".'!@#$%^&*()+,;:")).replace(' ', '_')}_{_item['_id']}.json'
-        with open(file=Path(_exportPath) / _jsonOutfileName, mode='w') as _jsonFile:
-          json.dump(obj=_item, fp=_jsonFile, indent=2)
-
-    # Write item keys to database
-    self.writeItemKeysToDataBase()
-
-  def shortenImportFilePath(self, path):
-    return path if len(path) < 50 else f'{path[0:30]}...{path[len(path)-31:len(path)]}'
-
-  def writeItemKeysToDataBase(self):
-    _currentItemKeys = db.query(statement='select ITEM_NAME, KEY from FOUNDRY_ITEM_KEYS')
-
-    if _currentItemKeys:
-      for _key in self.itemKeys:
-        _insertKey = True
-        for _keyDb in _currentItemKeys:
-          if _keyDb['ITEM_NAME'] == _key['ITEM_NAME']:
-            _insertKey = False
-            break
-
-        if _insertKey:
-          db.insert(statement='insert into FOUNDRY_ITEM_KEYS(ITEM_NAME, KEY) values(?, ?)', args=(_key['ITEM_NAME'], _key['KEY']), commit=False)
-    else:
-      for _key in self.itemKeys:
-        db.insert(statement='insert into FOUNDRY_ITEM_KEYS(ITEM_NAME, KEY) values(?, ?)', args=(_key['ITEM_NAME'], _key['KEY']), commit=False)
-
-    db.commitChanges()
-
-  def loadItemKeysFromDatabase(self):
-    _itemKeys = db.query(statement='select ITEM_ID, ITEM_NAME, KEY from FOUNDRY_ITEM_KEYS')
-    if not _itemKeys:
-      return
-
-    for _item in _itemKeys:
-      self.itemKeys.append({'ITEM_NAME': _item['ITEM_NAME'], 'KEY': _item['KEY']})
-
-  def createAndAddAttributeItemJsonTag(self, jsonData, attributeList=None, name=None, title=None, value=None):
-    if attributeList:
-      if name.upper() not in attributeList:
-        return
-
-    _tag = copy.copy(self.foundryItemTagTemplate)
-    _tag['title'] = title
-    _tag['value'] = value
-    jsonData['system']['tags'].append(_tag)
-
-  def generateUniqueItemKey(self, itemName):
-    _keyValid = False
-    _key = ''
-    _characterSet = f'0123456789ABCEDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-    while not _keyValid:
-      for _ in range(self.itemKeyLength):
-        _position = hp.rollDice(1, len(_characterSet)) - 1
-        _nextDigit = _characterSet[_position:_position + 1]
-        _key += _nextDigit
-
-      _keyValid = True
-      for _item in self.itemKeys:
-        if _item['KEY'] == _key:
-          _keyValid = False
-          break
-
-      if _keyValid:
-        self.itemKeys.append({'ITEM_NAME': itemName, 'KEY': _key})
-      else:
-        _key = ''
-
-    return _key
-
-  def getUniqueItemKey(self, itemName=''):
-    _finalItemKey = ''
-    for _key in self.itemKeys:
-      if _key['ITEM_NAME'] == itemName:
-        _finalItemKey = _key['KEY']
-        break
-
-    if _finalItemKey:
-      return _finalItemKey
-
-    return self.generateUniqueItemKey(itemName)
 
 class GameParameterManager(QWidget):
   def __init__(self):
@@ -1659,7 +1381,7 @@ class GameParameterManager(QWidget):
     # Check if parameter name is already in use
     _parameterExists = False
     for i in range(self.gameParameterTypeModel.rowCount()):
-      _name = self.gameParameterTypeModel.data(self.gameParameterTypeModel.index(i, _nameColumnId))
+      _name = self.gameParameterTypeModel._data(self.gameParameterTypeModel.index(i, _nameColumnId))
 
       if _name == _newParameterName:
         _parameterExists = True
@@ -1675,8 +1397,8 @@ class GameParameterManager(QWidget):
     # Get the parameters id
     _newParameterId = -1
     for i in range(self.gameParameterTypeModel.rowCount()):
-      _id = self.gameParameterTypeModel.data(self.gameParameterTypeModel.index(i, _idColumnId))
-      _name = self.gameParameterTypeModel.data(self.gameParameterTypeModel.index(i, _nameColumnId))
+      _id = self.gameParameterTypeModel._data(self.gameParameterTypeModel.index(i, _idColumnId))
+      _name = self.gameParameterTypeModel._data(self.gameParameterTypeModel.index(i, _nameColumnId))
 
       if _name == _newParameterName:
         _newParameterId = _id
@@ -1849,8 +1571,8 @@ class WeatherWidget(QWidget):
   def handleGenerateButton(self):
     _climateStr = self.climateComboBox.currentText()
     _monthStr = self.monthComboBox.currentText()
-    _climate = self.climateModel.data(self.climateModel.index(self.climateComboBox.currentIndex(), self.climateModel.sourceModel().record().indexOf('ID'), self.climateComboBox.rootModelIndex()))
-    _month = int(self.monthModel.data(self.monthModel.index(self.monthComboBox.currentIndex(), self.monthModel.sourceModel().record().indexOf('VALUE_1'), self.monthComboBox.rootModelIndex())))
+    _climate = self.climateModel._data(self.climateModel.index(self.climateComboBox.currentIndex(), self.climateModel.sourceModel().record().indexOf('ID'), self.climateComboBox.rootModelIndex()))
+    _month = int(self.monthModel._data(self.monthModel.index(self.monthComboBox.currentIndex(), self.monthModel.sourceModel().record().indexOf('VALUE_1'), self.monthComboBox.rootModelIndex())))
     _timespan = self.timespanSpinBox.value()
 
     self.weatherOutputPlainText.appendPlainText(f'Climate: {_climateStr}\n')
@@ -1975,7 +1697,6 @@ class Tools(QWidget):
     self.defineMenuLayout()
 
     self.characterBuilderWidget = CharacterBuildWidget()
-    self.itemDataManagerWidget = FoundryDataManagerWidget()
     self.dungeonRoomWidget = DungeonCreatorWidget()
     self.gameParameterManagerWidget = GameParameterManager()
     self.weatherWidget = WeatherWidget()
@@ -1994,25 +1715,22 @@ class Tools(QWidget):
   def defineMenuLayout(self):
     self.characterBuilderButton.clicked.connect(lambda clicked: self.changeWidget(self.characterBuilderWidget))
     self.dungeonRoomButton.clicked.connect(lambda clicked: self.changeWidget(self.dungeonRoomWidget))
-    self.itemDataManagerButton.clicked.connect(lambda clicked: self.changeWidget(self.itemDataManagerWidget))
     self.gameParameterManagerButton.clicked.connect(lambda clicked: self.changeWidget(self.gameParameterManagerWidget))
     self.weatherButton.clicked.connect(lambda clicked: self.changeWidget(self.weatherWidget))
 
     menuLayout = QVBoxLayout()
     menuLayout.addWidget(self.characterBuilderButton)
-    menuLayout.addWidget(self.itemDataManagerButton)
-    menuLayout.addWidget(self.dungeonRoomButton)
-    menuLayout.addWidget(self.gameParameterManagerButton)
-    menuLayout.addWidget(self.weatherButton)
+    #menuLayout.addWidget(self.dungeonRoomButton)
+    #menuLayout.addWidget(self.gameParameterManagerButton)
+    #menuLayout.addWidget(self.weatherButton)
     menuLayout.setSpacing(15)
     menuLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.menuWidget.setLayout(menuLayout)
 
   def defineContentStackedWidget(self):
     self.contentStackedWidget.addWidget(self.characterBuilderWidget)
-    self.contentStackedWidget.addWidget(self.itemDataManagerWidget)
     self.contentStackedWidget.addWidget(self.dungeonRoomWidget)
     self.contentStackedWidget.addWidget(self.gameParameterManagerWidget)
     self.contentStackedWidget.addWidget(self.weatherWidget)
-    self.contentStackedWidget.setCurrentIndex(1)
+    self.contentStackedWidget.setCurrentIndex(0)
 

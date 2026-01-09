@@ -1,5 +1,7 @@
 import random as rand
+import math
 import re as re
+from pathlib import Path
 
 def rollDice(amount, faces):
   if faces == 1:
@@ -20,6 +22,18 @@ def rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=5):
 
   return _score
 
+def shortenFilePath(path, maxLen=50):
+  _maxLenHalf = math.floor(maxLen / 2)
+  return path if len(path) < maxLen else f'{path[0:_maxLenHalf]}...{path[len(path) - _maxLenHalf:len(path)]}'
+
+def splitDiceRollFormula(formula=''):
+  _regexPattern = r'^(\d+)d(\d+)?'
+  _parts = re.findall(_regexPattern, formula)
+
+  if _parts:
+    return int(_parts[0][0]), int(_parts[0][1])
+
+  return None
 
 # Splits value statement into its components, statement = <die roll>{1} <arithm. operator>{+} <unit>{1}
 def splitAndProcessValueStatement(statement=''):
@@ -53,3 +67,16 @@ def splitAndProcessValueStatement(statement=''):
       _dieResult *= int(_constantValue)
 
   return [_dieResult, _unitComponent]
+
+# Determines contents of a directory recursively
+# Returns a list with full file names, including their path as Path()
+def traversePath(path):
+  _files = [f for f in path.iterdir()]
+  _filesInPath = []
+  for _file in _files:
+    if _file.is_dir():
+      _filesInPath.extend(traversePath(_file))
+    else:
+      _filesInPath.append(_file)
+
+  return _filesInPath

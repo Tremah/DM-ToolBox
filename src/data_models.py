@@ -1,7 +1,8 @@
-from PySide6.QtCore import Qt, QSortFilterProxyModel, QModelIndex
+from PySide6.QtCore import Qt, QSortFilterProxyModel, QModelIndex, QAbstractTableModel
 from PySide6.QtSql import QSqlTableModel, QSqlRelationalTableModel, QSqlRelation, QSqlQueryModel
 
-import database as db
+from src import database as db
+from src import helper as hp
 
 class CreatureGameSystemProxyModel(QSortFilterProxyModel):
   def __init__(self):
@@ -154,6 +155,61 @@ class GameParameterProxyModel(QSortFilterProxyModel):
     _columnId = self.sourceModel().record().indexOf(columnName)
     return _columnId
 
+class FoundryDocumentJsonExportModel(QAbstractTableModel):
+  def __init__(self, data, parent=None):
+    super().__init__()
+
+    self._data = data
+
+    self._columns = ['DOCUMENT_KEY', 'NAME', 'MODULE', 'MODULE_PACK', 'MODULE_FOLDER', 'MODULE_FOLDER_KEY', 'FOUNDRY_EXPORT_FILEPATH']
+    #self._columns = list(self.data[0].keys() if self.data else [])
+
+  def rowCount(self, parent=QModelIndex()):
+    return len(self._data)
+
+  def columnCount(self, parent=QModelIndex()):
+    return len(self._columns)
+
+  def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+    if not index.isValid():
+      return None
+
+    if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+      _row = index.row()
+      _column = index.column()
+      _key = self._columns[_column]
+
+      #if _key == 'FOUNDRY_EXPORT_FILEPATH' and role==Qt.ItemDataRole.DisplayRole:
+        #_filePathShort = hp.shortenFilePath(path=self._data[_row][_key], maxLen=80)
+
+        #return _filePathShort
+
+      return self._data[_row][_key]
+
+    return None
+
+  def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+    if role != Qt.ItemDataRole.DisplayRole:
+      return None
+
+    if orientation == Qt.Orientation.Horizontal:
+      return self._columns[section]
+    else:
+      return section + 1
+
+  def getData(self):
+    _data = []
+    for _row in range(self.rowCount()):
+      _rowData = {}
+      for _col in range(self.columnCount()):
+        _colName = self.headerData(_col, Qt.Orientation.Horizontal)
+        _index = self.index(_row, _col)
+        _value = self.data(_index, role=Qt.ItemDataRole.EditRole)
+        _rowData[_colName] = _value
+      _data.append(_rowData)
+
+    return _data
+
 class DataModels:
   def __init__(self):
     self.models = {}
@@ -163,15 +219,19 @@ class DataModels:
     # Simple models
     self.models['ALIGNMENT'] = self.defineModel(table='ALIGNMENT')
     self.models['CHALLENGE_RATING'] = self.defineModel(table='CHALLENGE_RATING')
+    self.models['CLASS'] = self.defineModel(table='CLASS')
     self.models['CLIMATE'] = self.defineModel(table='CLIMATE')
     self.models['CLIMATE_X_MONTH_X_PRECIPITATION_CLASS'] = self.defineModel(table='CLIMATE_X_MONTH_X_PRECIPITATION_CLASS')
+    self.models['CREATURE_NAME'] = self.defineModel(table='CREATURE_NAME')
     self.models['CREATURE_TYPE'] = self.defineModel(table='CREATURE_TYPE')
+    self.models['CONTENT_SOURCE'] = self.defineModel(table='CONTENT_SOURCE')
     self.models['ENVIRONMENT'] = self.defineModel(table='ENVIRONMENT')
     self.models['GAME_SYSTEM'] = self.defineModel(table='GAME_SYSTEM')
     self.models['GAME_PARAMETER'] = self.defineModel(table='GAME_PARAMETER')
     self.models['GAME_PARAMETER_TYPE'] = self.defineModel(table='GAME_PARAMETER_TYPE')
     self.models['MONTH'] = self.defineModel(table='MONTH')
     self.models['PRECIPITATION_CLASS'] = self.defineModel(table='PRECIPITATION_CLASS')
+    self.models['RACE'] = self.defineModel(table='RACE')
 
     # Models with foreign key support
     self.models['CREATURE_5E'] = self.define5eCreatureModel()
@@ -179,9 +239,44 @@ class DataModels:
     self.models['CREATURE_X_GAME_SYSTEM'] = self.defineModel(table='CREATURE_X_GAME_SYSTEM')
     self.models['CREATURE_X_ENVIRONMENT'] = self.defineModel(table='CREATURE_X_ENVIRONMENT')
 
+    # Other
+    self.models['FOUNDRY_DOCUMENTS_DATABASE_ITEMS'] = self.defineFoundryDocumentsDatabaseItemsModel()
+
   def columnId(self, modelName, columnName):
     _columnId = self.models[modelName].record().indexOf(columnName)
     return _columnId
+
+  def getDataForModelIndex(self, modelName, columnName, valueColumnName, value):
+    _model = self.models[modelName]
+    _valueColumnId = self.columnId(modelName, valueColumnName)
+    for i in range(_model.rowCount()):
+      _value = _model.data(_model.index(i, _valueColumnId))
+      if _value == value:
+        _targetColumnId = self.columnId(modelName, columnName)
+        _tValue = _model.data(_model.index(i, _targetColumnId))
+        return _tValue
+
+    return None
+
+  def getDataForModelColumn(self, modelName, columName, filterColumn='', filterValue=''):
+    _model = self.models[modelName]
+    _columnId = self.columnId(modelName, columName)
+    _valueList = []
+
+    _filterColumnId = -1
+    if filterColumn and filterValue:
+      _filterColumnId = self.columnId(modelName, filterColumn)
+
+    for i in range(_model.rowCount()):
+      if filterColumn and filterValue:
+        _value = _model.data(_model.index(i, _filterColumnId))
+        if _value != filterValue:
+          continue
+
+      _value = _model.data(_model.index(i, _columnId))
+      _valueList.append(_value)
+
+    return _valueList
 
   def defineModel(self, modelType=QSqlTableModel, table=None, fetchAll=True, editStrategy=QSqlTableModel.EditStrategy.OnManualSubmit):
     _model = modelType()
@@ -326,6 +421,30 @@ class DataModels:
 
     return _model
 
+  def defineFoundryDocumentsDatabaseItemsModel(self):
+
+    _query = f'''      
+      select distinct
+        fdk.DOCUMENT_KEY,
+        it.NAME,
+        itt.NAME as ITEM_TYPE,
+        it.CATEGORY, it.COST, it.WEIGHT, it.ATTRIBUTES, it.AC, it.DAMAGE, it.RANGE_SHORT, it.RANGE_MEDIUM, it.RANGE_LONG   
+      from
+        FOUNDRY_DOCUMENTS fdk
+        inner join ITEM it on fdk.ITEM_ID = it.ID
+        left join ITEM_TYPE itt on it.TYPE = itt.ID
+      order by
+        it.NAME;
+    '''
+
+    _model = QSqlQueryModel()
+    _model.setQuery(_query)
+    _rc = _model.rowCount()
+    while _model.canFetchMore():
+      _model.fetchMore()
+
+    return _model
+
   def model(self, name):
     if name not in self.models:
       return None
@@ -335,6 +454,13 @@ class DataModels:
   def modelData(self, modelName, columns=(), one=False):
     if modelName not in self.models:
       return None
+
+    _columns = columns
+    if len(_columns) == 0:
+      _columns = []
+      for i in range(self.models[modelName].columnCount()):
+        _colName = self.models[modelName].record().fieldName(i)
+        _columns.append(_colName)
 
 
     # If only the first row is requested, return a dictionary
@@ -351,15 +477,17 @@ class DataModels:
     _data = []
     for i in range(self.models[modelName].rowCount()):
       _row = {}
-      for _column in columns:
-        _colId = self.models[modelName].record().indexOf(_column)
-        _row[_column] = self.models[modelName].data(self.models[modelName].index(i, _colId))
+      if len(columns) > 0:
+        for _column in columns:
+          _colId = self.models[modelName].record().indexOf(_column)
+          _row[_column] = self.models[modelName].data(self.models[modelName].index(i, _colId))
+      else:
+        for i in range(self.models[modelName].columnCount()):
+          _colId = self.models[modelName].record().indexOf(i)
 
       _data.append(_row)
 
     return _data
-
-
 
 dataModels = DataModels()
 

@@ -1,2 +1,2 @@
-# DM-ToolBox
-A set of tools for Dungeon- and Game Masters.
+# Referee-ToolBox
+A set of tools for Referees, Dungeon- and Game Masters.

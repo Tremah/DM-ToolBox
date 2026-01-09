@@ -4,18 +4,47 @@ QGroupBox {
 
 QGroupBox::title {
   subcontrol-origin: margin;
+  subcontrol-position: top left;
   left: 15px;
   padding: 0px 1px 0px 1px;
 }
 
 QTextEdit#labelTextEdit {
-    background: transparent;
-    border: 0px solid white;;
-    padding: 0px;
-    margin: 0px;
-    font: inherit;
+  background: transparent;
+  border: 0px solid white;;
+  padding: 0px;
+  margin: 0px;
+  font: inherit;
 }
 
 QLabel {
-   border: 0px solid white;
+  border: 0px solid white;
+  font-family: "Ubuntu Sans";
+  font-size: 16px;
+}
+
+QLabel#headerLabel {
+  font-size: 18px;
+}
+
+QLabel#smallLabel {
+  font-size: 12px;
+}
+
+QSpinBox {
+  font-family: "Ubuntu Mono";
+  font-size: 16px;
+}
+
+QCheckBox::indicator:unchecked {
+    border: 1px solid #777;
+    background: transparent;
+    width: 15px;
+    height: 15px;
+}
+
+QCheckBox::indicator:checked {
+    background-color: rgba(255, 255, 255, 0.6); /* soft white */
+    width: 15px;
+    height: 15px;
 }
