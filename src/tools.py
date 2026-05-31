@@ -25,713 +25,6 @@ from src import helper as hp
 from src import app_config as apc
 from src.game_system_data_models import ose
 
-class CharacterBuildWidget(QWidget):
-  def __init__(self):
-    super().__init__()
-
-    oseModel = ose.OseCharacterDataModel()
-    oseModel.createCharacter()
-
-    # Data Models
-    self.raceModel = dm.getDataModels().model('RACE')
-    self.classModel = dm.getDataModels().model('CLASS')
-    self.alignmentModel = dm.getDataModels().model('ALIGNMENT')
-
-    # Header Label
-    _headerLabel = QLabel('Character Builder')
-    _headerLabel.setObjectName('headerLabel')
-
-    # Race
-    _raceComboBoxLabel = QLabel('Race:')
-    self.raceComboBox = QComboBox()
-    self.raceComboBox.setModel(self.raceModel)
-    self.raceComboBox.setModelColumn(self.raceModel.record().indexOf('NAME'))
-
-    # Class
-    _classComboBoxLabel = QLabel('Class:')
-    self.classComboBox = QComboBox()
-    self.classComboBox.setModel(self.classModel)
-    self.classComboBox.setModelColumn(self.classModel.record().indexOf('NAME'))
-
-    # Level
-    _levelSpinBoxLabel = QLabel('Level:')
-
-    self.levelSpinBox = QSpinBox()
-    self.levelSpinBox.setMinimum(0)
-    self.levelSpinBox.setMaximum(100)
-    self.levelSpinBox.setValue(1)
-
-    # Age
-    _ageSpinBoxLabel = QLabel('Age:')
-
-    self.ageSpinBox = QSpinBox()
-    self.ageSpinBox.setMinimum(1)
-    self.ageSpinBox.setMaximum(3000)
-    self.ageSpinBox.setValue(1)
-
-    # Random character
-    self.randomCharacterButton = QPushButton("Random Character")
-    self.randomCharacterButton.clicked.connect(self.handleRandomCharacterButton)
-
-    # Generate
-    self.generateButton = QPushButton("Generate")
-    self.generateButton.clicked.connect(self.handleGenerateButton)
-
-    # Clear
-    self.clearButton = QPushButton("Clear")
-    self.clearButton.clicked.connect(self.handleClearButton)
-
-    # Save to file
-    self.saveToFileButton = QPushButton("Save To File")
-    self.saveToFileButton.clicked.connect(self.handleSaveToFileButton)
-
-    # Finish settings group box
-    self.settingsGroupBoxLayout = QGridLayout()
-    self.settingsGroupBoxLayout.setSpacing(20)
-    self.settingsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.settingsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.settingsGroupBoxLayout.addWidget(_classComboBoxLabel, 0, 0)
-    self.settingsGroupBoxLayout.addWidget(self.classComboBox, 0, 1)
-    self.settingsGroupBoxLayout.addWidget(_raceComboBoxLabel, 1, 0)
-    self.settingsGroupBoxLayout.addWidget(self.raceComboBox, 1, 1)
-    self.settingsGroupBoxLayout.addWidget(_levelSpinBoxLabel, 2, 0)
-    self.settingsGroupBoxLayout.addWidget(self.levelSpinBox, 2, 1)
-    self.settingsGroupBoxLayout.addWidget(_ageSpinBoxLabel, 3, 0)
-    self.settingsGroupBoxLayout.addWidget(self.ageSpinBox, 3, 1)
-
-    self.settingsGroupBoxLayout.addWidget(self.randomCharacterButton, 9, 0)
-    self.settingsGroupBoxLayout.addWidget(self.generateButton, 10, 0)
-    self.settingsGroupBoxLayout.addWidget(self.clearButton, 11, 0)
-    self.settingsGroupBoxLayout.addWidget(self.saveToFileButton, 12, 0)
-
-    self.settingsGroupBoxLayout.setColumnStretch(0, 1)
-    self.settingsGroupBoxLayout.setColumnStretch(1, 1)
-    self.settingsGroupBoxLayout.setColumnStretch(3, 2)
-
-    ## Settings Group Box
-    self.settingsGroupBox = QGroupBox()
-    self.settingsGroupBox.setTitle('Settings')
-    self.settingsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.settingsGroupBox.setLayout(self.settingsGroupBoxLayout)
-
-    ## Character GroupBox
-
-    # GENERAL #
-
-    # Character name
-    _nameLineEditLabel = QLabel('Name:')
-    self.nameLineEdit = QLineEdit()
-
-    # Class
-    _classLineEditLabel = QLabel('Class:')
-    self.classLineEdit = QLineEdit()
-
-    # Race
-    _raceLineEditLabel = QLabel('Race:')
-    self.raceLineEdit = QLineEdit()
-
-    # Level
-    _levelLineEditLabel = QLabel('Level:')
-    self.levelLineEdit = QLineEdit()
-
-    # XP
-    _xpLineEditLabel = QLabel('XP:')
-    self.xpLineEdit = QLineEdit()
-
-    # Starting Wealth
-    _startingWealthSpinBoxLabel = QLabel('Starting Wealth:')
-    self.startingWealthSpinBox = QSpinBox()
-    self.startingWealthSpinBox.setMinimum(1)
-    self.startingWealthSpinBox.setMaximum(10000)
-    self.startingWealthSpinBox.setValue(1)
-
-    # Character title
-    _titleLineEditLabel = QLabel('Title:')
-    self.titleLineEdit = QLineEdit()
-
-    # Character alignment
-    _alignmentComboboxLabel = QLabel('Alignment:')
-    self.alignmentComboBox = QComboBox()
-    self.alignmentComboBox.setModel(self.alignmentModel)
-    self.alignmentComboBox.setModelColumn(self.alignmentModel.record().indexOf('NAME'))
-
-    # Character age
-    _ageLineEditLabel = QLabel('Age:')
-    self.ageLineEdit = QLineEdit()
-
-    # Character height
-    _heightLineEditLabel = QLabel('Height:')
-    self.heightLineEdit = QLineEdit()
-
-    # Character weight
-    _weightLineEditLabel = QLabel('Weight:')
-    self.weightLineEdit = QLineEdit()
-
-    # MOVEMENT #
-
-    # Overland
-    _movementOverlandLabelLabel = QLabel('Overland:')
-    self.movementOverlandLabel = QLabel()
-
-    # Exploration
-    _movementExploration = QLabel('Exploration:')
-    self.movementExplorationLineEdit = QLineEdit()
-
-    # Encounter
-    _movementEncounterLabelLabel = QLabel('Encounter:')
-    self.movementEncounterLabel = QLabel()
-
-    # ABILITIES #
-
-    # Strength score
-    _strengthSpinBoxLabel = QLabel('Strength:')
-    self.strengthSpinBox = QSpinBox()
-    self.strengthSpinBox.setMinimum(1)
-    self.strengthSpinBox.setMaximum(30)
-    self.strengthSpinBox.setValue(1)
-
-    _strengthModSpinBoxLabel = QLabel('Mod:')
-    self.strengthModSpinBox = QSpinBox()
-    self.strengthModSpinBox.setMinimum(0)
-    self.strengthModSpinBox.setMaximum(3)
-    self.strengthModSpinBox.setValue(0)
-
-    # Intelligence score
-    _intelligenceSpinBoxLabel = QLabel('Intelligence:')
-    self.intelligenceSpinBox = QSpinBox()
-    self.intelligenceSpinBox.setMinimum(1)
-    self.intelligenceSpinBox.setMaximum(30)
-    self.intelligenceSpinBox.setValue(1)
-
-    _intelligenceModSpinBoxLabel = QLabel('Mod:')
-    self.intelligenceModSpinBox = QSpinBox()
-    self.intelligenceModSpinBox.setMinimum(0)
-    self.intelligenceModSpinBox.setMaximum(3)
-    self.intelligenceModSpinBox.setValue(0)
-
-    # Wisdom score
-    _wisdomSpinBoxLabel = QLabel('Wisdom:')
-    self.wisdomSpinBox = QSpinBox()
-    self.wisdomSpinBox.setMinimum(1)
-    self.wisdomSpinBox.setMaximum(30)
-    self.wisdomSpinBox.setValue(1)
-
-    _wisdomModSpinBoxLabel = QLabel('Mod:')
-    self.wisdomModSpinBox = QSpinBox()
-    self.wisdomModSpinBox.setMinimum(0)
-    self.wisdomModSpinBox.setMaximum(3)
-    self.wisdomModSpinBox.setValue(0)
-
-    # Dexterity score
-    _dexteritySpinBoxLabel = QLabel('Dexterity:')
-    self.dexteritySpinBox = QSpinBox()
-    self.dexteritySpinBox.setMinimum(1)
-    self.dexteritySpinBox.setMaximum(30)
-    self.dexteritySpinBox.setValue(1)
-
-    _dexterityModSpinBoxLabel = QLabel('Mod:')
-    self.dexterityModSpinBox = QSpinBox()
-    self.dexterityModSpinBox.setMinimum(0)
-    self.dexterityModSpinBox.setMaximum(3)
-    self.dexterityModSpinBox.setValue(0)
-
-    # Constitution score
-    _constitutionSpinBoxLabel = QLabel('Constitution:')
-    self.constitutionSpinBox = QSpinBox()
-    self.constitutionSpinBox.setMinimum(1)
-    self.constitutionSpinBox.setMaximum(30)
-    self.constitutionSpinBox.setValue(1)
-
-    _constitutionModSpinBoxLabel = QLabel('Mod:')
-    self.constitutionModSpinBox = QSpinBox()
-    self.constitutionModSpinBox.setMinimum(0)
-    self.constitutionModSpinBox.setMaximum(3)
-    self.constitutionModSpinBox.setValue(0)
-
-    # Charisma score
-    _charismaSpinBoxLabel = QLabel('Charisma:')
-    self.charismaSpinBox = QSpinBox()
-    self.charismaSpinBox.setMinimum(1)
-    self.charismaSpinBox.setMaximum(30)
-    self.charismaSpinBox.setValue(1)
-
-    _charismaModSpinBoxLabel = QLabel('Mod:')
-    self.charismaModSpinBox = QSpinBox()
-    self.charismaModSpinBox.setMinimum(0)
-    self.charismaModSpinBox.setMaximum(3)
-    self.charismaModSpinBox.setValue(0)
-
-    # COMBAT #
-
-    # Character HD
-    _hdSpinBoxLabel = QLabel('HD:')
-    self.hdSpinBox = QSpinBox()
-    self.hdSpinBox.setMinimum(1)
-    self.hdSpinBox.setMaximum(9)
-    self.hdSpinBox.setValue(1)
-
-    # Character HP
-    _hpLabelLabel = QLabel('Hit Points:')
-    self.hpLabel = QLabel()
-
-    # THAC0
-    _thac0SpinBoxLabel = QLabel('THAC0:')
-    self.thac0SpinBox = QSpinBox()
-    self.thac0SpinBox.setMinimum(5)
-    self.thac0SpinBox.setMaximum(20)
-    self.thac0SpinBox.setValue(20)
-
-    # Character AC
-    _acSpinBoxLabel = QLabel('AC:')
-    self.acSpinBox = QSpinBox()
-    self.acSpinBox.setMinimum(-10)
-    self.acSpinBox.setMaximum(20)
-    self.acSpinBox.setValue(20)
-
-    # AC Bonus
-    _acBonusLabelLabel = QLabel('AC Bonus:')
-    self.acBonusLabel = QLabel()
-
-    #Unarmored AC
-    _unarmoredACLabelLabel = QLabel('Unarmored AC:')
-    self.unarmoredACLabel = QLabel()
-
-    # Melee Bonus
-    _meleeBonusLabel = QLabel('Melee Bonus:')
-    self.meleeBonusSpinBox = QSpinBox()
-    self.meleeBonusSpinBox.setMinimum(0)
-    self.meleeBonusSpinBox.setMaximum(3)
-    self.meleeBonusSpinBox.setValue(0)
-
-    # Missile Bonus
-    _missileBonusLabel = QLabel('Missile Bonus:')
-    self.missileBonusSpinBox = QSpinBox()
-    self.missileBonusSpinBox.setMinimum(0)
-    self.missileBonusSpinBox.setMaximum(3)
-    self.missileBonusSpinBox.setValue(0)
-
-    # SAVING THROWS #
-    _minSave = 2
-    _maxSave = 16
-    _savePoisonDeathSpinBoxLabel = QLabel('Death, Poison:')
-    self.savePoisonDeathSpinBox = QSpinBox()
-    self.savePoisonDeathSpinBox.setMinimum(_minSave)
-    self.savePoisonDeathSpinBox.setMaximum(_maxSave)
-    self.savePoisonDeathSpinBox.setValue(_maxSave)
-    _saveMagicWandsSpinBoxLabel = QLabel('Magic Wands:')
-    self.saveMagicWandsSpinBox =  QSpinBox()
-    self.saveMagicWandsSpinBox.setMinimum(_minSave)
-    self.saveMagicWandsSpinBox.setMaximum(_maxSave)
-    self.saveMagicWandsSpinBox.setValue(_maxSave)
-    _saveParalysisPetrificationSpinBoxLabel = QLabel('Paralysis, Petrification:')
-    self.saveParalysisPetrificationSpinBox =  QSpinBox()
-    self.saveParalysisPetrificationSpinBox.setMinimum(_minSave)
-    self.saveParalysisPetrificationSpinBox.setMaximum(_maxSave)
-    self.saveParalysisPetrificationSpinBox.setValue(_maxSave)
-    _saveBreathAttacksSpinBoxLabel = QLabel('Breath Attacks:')
-    self.saveBreathAttacksSpinBox =  QSpinBox()
-    self.saveBreathAttacksSpinBox.setMinimum(_minSave)
-    self.saveBreathAttacksSpinBox.setMaximum(_maxSave)
-    self.saveBreathAttacksSpinBox.setValue(_maxSave)
-    _saveSpellsRodsStavesSpinBoxLabel = QLabel('Spells, Magic Rods and Staves:')
-    self.saveSpellsRodsStavesSpinBox =  QSpinBox()
-    self.saveSpellsRodsStavesSpinBox.setMinimum(_minSave)
-    self.saveSpellsRodsStavesSpinBox.setMaximum(_maxSave)
-    self.saveSpellsRodsStavesSpinBox.setValue(_maxSave)
-    _wisdomModifierToSaveVsMagicLabel = QLabel('Wisdom modifier to saves vs. magic:')
-    self.wisdomModifierToSaveVsMagicSpinBox =  QSpinBox()
-    self.wisdomModifierToSaveVsMagicSpinBox.setMinimum(0)
-    self.wisdomModifierToSaveVsMagicSpinBox.setMaximum(3)
-    self.wisdomModifierToSaveVsMagicSpinBox.setValue(0)
-
-    # ADVENTURING SKILLS #
-
-    # Foraging In The Wild
-    _foragingSkillLabel = QLabel('Forage In The Wild:')
-    self.foragingSkillSpinBox = QSpinBox()
-    self.foragingSkillSpinBox.setMinimum(1)
-    self.foragingSkillSpinBox.setMaximum(6)
-    self.foragingSkillSpinBox.setValue(1)
-
-    # Find Room Trap
-    _findRoomTrapSkillLabel = QLabel('Find Room Trap:')
-    self.findRoomTrapSkillSpinBox = QSpinBox()
-    self.findRoomTrapSkillSpinBox.setMinimum(1)
-    self.findRoomTrapSkillSpinBox.setMaximum(6)
-    self.findRoomTrapSkillSpinBox.setValue(1)
-
-    # Hunt In The Wild
-    _huntingSkillLabel = QLabel('Hunt In The Wild:')
-    self.huntingSkillSpinBox = QSpinBox()
-    self.huntingSkillSpinBox.setMinimum(1)
-    self.huntingSkillSpinBox.setMaximum(6)
-    self.huntingSkillSpinBox.setValue(1)
-
-    # Listen At Door
-    _listenAtDoorSkillLabel = QLabel('Listen At Door:')
-    self.listenAtDoorSkillSpinBox = QSpinBox()
-    self.listenAtDoorSkillSpinBox.setMinimum(1)
-    self.listenAtDoorSkillSpinBox.setMaximum(6)
-    self.listenAtDoorSkillSpinBox.setValue(1)
-
-    # Foraging
-    _openStuckDoorSkillLabel = QLabel('Open Stuck Door:')
-    self.openStuckDoorSkillSpinBox = QSpinBox()
-    self.openStuckDoorSkillSpinBox.setMinimum(1)
-    self.openStuckDoorSkillSpinBox.setMaximum(6)
-    self.openStuckDoorSkillSpinBox.setValue(1)
-
-    # Foraging
-    _findSecretDoorSkillLabel = QLabel('Find Secret Door:')
-    self.findSecretDoorSkillSpinBox = QSpinBox()
-    self.findSecretDoorSkillSpinBox.setMinimum(1)
-    self.findSecretDoorSkillSpinBox.setMaximum(6)
-    self.findSecretDoorSkillSpinBox.setValue(1)
-
-    ## Sub Group boxes
-
-    # General Group Box
-    self.generalGroupBoxLayout = QGridLayout()
-    self.generalGroupBoxLayout.setSpacing(20)
-    self.generalGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.generalGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.generalGroupBoxLayout.addWidget(_nameLineEditLabel, 0, 0)
-    self.generalGroupBoxLayout.addWidget(self.nameLineEdit, 0, 1)
-    self.generalGroupBoxLayout.addWidget(_titleLineEditLabel, 0, 2)
-    self.generalGroupBoxLayout.addWidget(self.titleLineEdit, 0, 3)
-    self.generalGroupBoxLayout.addWidget(_classLineEditLabel, 1, 0)
-    self.generalGroupBoxLayout.addWidget(self.classLineEdit, 1, 1)
-    self.generalGroupBoxLayout.addWidget(_alignmentComboboxLabel, 1, 2)
-    self.generalGroupBoxLayout.addWidget(self.alignmentComboBox, 1, 3)
-    self.generalGroupBoxLayout.addWidget(_raceLineEditLabel, 2, 0)
-    self.generalGroupBoxLayout.addWidget(self.raceLineEdit, 2, 1)
-    self.generalGroupBoxLayout.addWidget(_ageLineEditLabel, 2, 2)
-    self.generalGroupBoxLayout.addWidget(self.ageLineEdit, 2, 3)
-    self.generalGroupBoxLayout.addWidget(_levelLineEditLabel, 3, 0)
-    self.generalGroupBoxLayout.addWidget(self.levelLineEdit, 3, 1)
-    self.generalGroupBoxLayout.addWidget(_heightLineEditLabel, 3, 2)
-    self.generalGroupBoxLayout.addWidget(self.heightLineEdit, 3, 3)
-    self.generalGroupBoxLayout.addWidget(_xpLineEditLabel, 4, 0)
-    self.generalGroupBoxLayout.addWidget(self.xpLineEdit, 4, 1)
-    self.generalGroupBoxLayout.addWidget(_weightLineEditLabel, 4, 2)
-    self.generalGroupBoxLayout.addWidget(self.weightLineEdit, 4, 3)
-    self.generalGroupBoxLayout.addWidget(_startingWealthSpinBoxLabel, 5, 0)
-    self.generalGroupBoxLayout.addWidget(self.startingWealthSpinBox, 5, 1)
-
-    self.generalGroupBoxLayout.setColumnStretch(0, 1)
-    self.generalGroupBoxLayout.setColumnStretch(1, 2)
-    self.generalGroupBoxLayout.setColumnStretch(2, 1)
-    self.generalGroupBoxLayout.setColumnStretch(3, 2)
-
-    self.generalGroupBox = QGroupBox()
-    self.generalGroupBox.setTitle('General')
-    self.generalGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.generalGroupBox.setLayout(self.generalGroupBoxLayout)
-
-    # Abilities group box
-    self.abilitiesGroupBoxLayout = QGridLayout()
-    self.abilitiesGroupBoxLayout.setSpacing(20)
-    self.abilitiesGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.abilitiesGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.abilitiesGroupBoxLayout.addWidget(_strengthSpinBoxLabel, 0, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.strengthSpinBox, 0, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_strengthModSpinBoxLabel, 0, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.strengthModSpinBox, 0, 3)
-    self.abilitiesGroupBoxLayout.addWidget(_intelligenceSpinBoxLabel, 1, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.intelligenceSpinBox, 1, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_intelligenceModSpinBoxLabel, 1, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.intelligenceModSpinBox, 1, 3)
-    self.abilitiesGroupBoxLayout.addWidget(_wisdomSpinBoxLabel, 2, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.wisdomSpinBox, 2, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_wisdomModSpinBoxLabel, 2, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.wisdomModSpinBox, 2, 3)
-    self.abilitiesGroupBoxLayout.addWidget(_dexteritySpinBoxLabel, 3, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.dexteritySpinBox, 3, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_dexterityModSpinBoxLabel, 3, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.dexterityModSpinBox, 3, 3)
-    self.abilitiesGroupBoxLayout.addWidget(_constitutionSpinBoxLabel, 4, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.constitutionSpinBox, 4, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_constitutionModSpinBoxLabel, 4, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.constitutionModSpinBox, 4, 3)
-    self.abilitiesGroupBoxLayout.addWidget(_charismaSpinBoxLabel, 5, 0)
-    self.abilitiesGroupBoxLayout.addWidget(self.charismaSpinBox, 5, 1)
-    self.abilitiesGroupBoxLayout.addWidget(_charismaModSpinBoxLabel, 5, 2)
-    self.abilitiesGroupBoxLayout.addWidget(self.charismaModSpinBox, 5, 3)
-
-    self.abilitiesGroupBoxLayout.setColumnStretch(0, 1)
-    self.abilitiesGroupBoxLayout.setColumnStretch(1, 1)
-    self.abilitiesGroupBoxLayout.setColumnStretch(2, 1)
-    self.abilitiesGroupBoxLayout.setColumnStretch(3, 1)
-    self.abilitiesGroupBoxLayout.setColumnStretch(4, 2)
-
-    self.abilitiesGroupBox = QGroupBox()
-    self.abilitiesGroupBox.setTitle('Abilities')
-    self.abilitiesGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.abilitiesGroupBox.setLayout(self.abilitiesGroupBoxLayout)
-
-    # Movement group box
-    self.movementGroupBoxLayout = QGridLayout()
-    self.movementGroupBoxLayout.setSpacing(20)
-    self.movementGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.movementGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.movementGroupBoxLayout.addWidget(_movementOverlandLabelLabel, 0, 0)
-    self.movementGroupBoxLayout.addWidget(self.movementOverlandLabel, 0, 1)
-    self.movementGroupBoxLayout.addWidget(_movementExploration, 1, 0)
-    self.movementGroupBoxLayout.addWidget(self.movementExplorationLineEdit, 1, 1)
-    self.movementGroupBoxLayout.addWidget(_movementEncounterLabelLabel, 2, 0)
-    self.movementGroupBoxLayout.addWidget(self.movementEncounterLabel, 2, 1)
-
-    self.movementGroupBoxLayout.setColumnStretch(0, 1)
-    self.movementGroupBoxLayout.setColumnStretch(1, 1)
-    self.movementGroupBoxLayout.setColumnStretch(2, 2)
-
-    self.movementGroupBox = QGroupBox()
-    self.movementGroupBox.setTitle('Movement')
-    self.movementGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.movementGroupBox.setLayout(self.movementGroupBoxLayout)
-
-    # Combat group box
-    self.combatGroupBoxLayout = QGridLayout()
-    self.combatGroupBoxLayout.setSpacing(20)
-    self.combatGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.combatGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.combatGroupBoxLayout.addWidget(_hdSpinBoxLabel, 0, 0)
-    self.combatGroupBoxLayout.addWidget(self.hdSpinBox, 0, 1)
-    self.combatGroupBoxLayout.addWidget(_hpLabelLabel, 0, 2)
-    self.combatGroupBoxLayout.addWidget(self.hpLabel, 0, 3)
-    self.combatGroupBoxLayout.addWidget(_thac0SpinBoxLabel, 1, 0)
-    self.combatGroupBoxLayout.addWidget(self.thac0SpinBox, 1, 1)
-    self.combatGroupBoxLayout.addWidget(_acSpinBoxLabel, 2, 0)
-    self.combatGroupBoxLayout.addWidget(self.acSpinBox, 2, 1)
-    self.combatGroupBoxLayout.addWidget(_acBonusLabelLabel, 2, 2)
-    self.combatGroupBoxLayout.addWidget(self.acBonusLabel, 2, 3)
-    self.combatGroupBoxLayout.addWidget(_unarmoredACLabelLabel, 2, 4)
-    self.combatGroupBoxLayout.addWidget(self.unarmoredACLabel, 2, 5)
-    self.combatGroupBoxLayout.addWidget(_meleeBonusLabel, 3, 0)
-    self.combatGroupBoxLayout.addWidget(self.meleeBonusSpinBox, 3, 1)
-    self.combatGroupBoxLayout.addWidget(_missileBonusLabel, 4, 0)
-    self.combatGroupBoxLayout.addWidget(self.missileBonusSpinBox, 4, 1)
-
-    self.combatGroupBoxLayout.setColumnStretch(0, 1)
-    self.combatGroupBoxLayout.setColumnStretch(1, 1)
-    self.combatGroupBoxLayout.setColumnStretch(2, 1)
-    self.combatGroupBoxLayout.setColumnStretch(3, 1)
-    self.combatGroupBoxLayout.setColumnStretch(4, 1)
-    self.combatGroupBoxLayout.setColumnStretch(5, 1)
-    self.combatGroupBoxLayout.setColumnStretch(6, 1)
-
-    self.combatGroupBox = QGroupBox()
-    self.combatGroupBox.setTitle('Combat')
-    self.combatGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.combatGroupBox.setLayout(self.combatGroupBoxLayout)
-
-    # Saving Throw group box
-    self.saveGroupBoxLayout = QGridLayout()
-    self.saveGroupBoxLayout.setSpacing(20)
-    self.saveGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.saveGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.saveGroupBoxLayout.addWidget(_savePoisonDeathSpinBoxLabel, 0, 0)
-    self.saveGroupBoxLayout.addWidget(self.savePoisonDeathSpinBox, 0, 1)
-    self.saveGroupBoxLayout.addWidget(_saveMagicWandsSpinBoxLabel, 1, 0)
-    self.saveGroupBoxLayout.addWidget(self.saveMagicWandsSpinBox, 1, 1)
-    self.saveGroupBoxLayout.addWidget(_saveParalysisPetrificationSpinBoxLabel, 2, 0)
-    self.saveGroupBoxLayout.addWidget(self.saveParalysisPetrificationSpinBox, 2, 1)
-    self.saveGroupBoxLayout.addWidget(_saveBreathAttacksSpinBoxLabel, 3, 0)
-    self.saveGroupBoxLayout.addWidget(self.saveBreathAttacksSpinBox, 3, 1)
-    self.saveGroupBoxLayout.addWidget(_saveSpellsRodsStavesSpinBoxLabel, 4, 0)
-    self.saveGroupBoxLayout.addWidget(self.saveSpellsRodsStavesSpinBox, 4, 1)
-    self.saveGroupBoxLayout.addWidget(_wisdomModifierToSaveVsMagicLabel, 5, 0)
-    self.saveGroupBoxLayout.addWidget(self.wisdomModifierToSaveVsMagicSpinBox, 5, 1)
-
-    self.saveGroupBoxLayout.setColumnStretch(0, 1)
-    self.saveGroupBoxLayout.setColumnStretch(1, 1)
-
-    self.saveGroupBox = QGroupBox()
-    self.saveGroupBox.setTitle('Saving Throws')
-    self.saveGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.saveGroupBox.setLayout(self.saveGroupBoxLayout)
-
-    # Adventuring Skills group box
-    self.adventureSkillsGroupBoxLayout = QGridLayout()
-    self.adventureSkillsGroupBoxLayout.setSpacing(20)
-    self.adventureSkillsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.adventureSkillsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.adventureSkillsGroupBoxLayout.addWidget(_foragingSkillLabel, 0, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.foragingSkillSpinBox, 0, 1)
-    self.adventureSkillsGroupBoxLayout.addWidget(_findRoomTrapSkillLabel, 1, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.findRoomTrapSkillSpinBox, 1, 1)
-    self.adventureSkillsGroupBoxLayout.addWidget(_huntingSkillLabel, 2, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.huntingSkillSpinBox, 2, 1)
-    self.adventureSkillsGroupBoxLayout.addWidget(_listenAtDoorSkillLabel, 3, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.listenAtDoorSkillSpinBox, 3, 1)
-    self.adventureSkillsGroupBoxLayout.addWidget(_openStuckDoorSkillLabel, 4, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.openStuckDoorSkillSpinBox, 4, 1)
-    self.adventureSkillsGroupBoxLayout.addWidget(_findSecretDoorSkillLabel, 5, 0)
-    self.adventureSkillsGroupBoxLayout.addWidget(self.findSecretDoorSkillSpinBox, 5, 1)
-
-
-    self.adventureSkillsGroupBoxLayout.setColumnStretch(0, 1)
-    self.adventureSkillsGroupBoxLayout.setColumnStretch(1, 1)
-    self.adventureSkillsGroupBoxLayout.setColumnStretch(2, 2)
-
-    self.adventureSkillsGroupBox = QGroupBox()
-    self.adventureSkillsGroupBox.setTitle('Adventuring Skills')
-    self.adventureSkillsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.adventureSkillsGroupBox.setLayout(self.adventureSkillsGroupBoxLayout)
-
-
-    ## Finish character group box
-    self.characterGroupBoxLayout = QGridLayout()
-    self.characterGroupBoxLayout.setSpacing(20)
-    self.characterGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.characterGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.characterGroupBoxLayout.addWidget(self.generalGroupBox, 0, 0)
-    self.characterGroupBoxLayout.addWidget(self.abilitiesGroupBox, 0, 1)
-    self.characterGroupBoxLayout.addWidget(self.movementGroupBox, 0, 2)
-    self.characterGroupBoxLayout.addWidget(self.combatGroupBox, 1, 0)
-    self.characterGroupBoxLayout.addWidget(self.saveGroupBox, 1, 1)
-    self.characterGroupBoxLayout.addWidget(self.adventureSkillsGroupBox, 1, 2)
-
-    self.characterGroupBoxLayout.setColumnStretch(0, 3)
-    self.characterGroupBoxLayout.setColumnStretch(1, 2)
-    self.characterGroupBoxLayout.setColumnStretch(2, 2)
-    self.characterGroupBoxLayout.setRowStretch(0, 1)
-    self.characterGroupBoxLayout.setRowStretch(1, 1)
-    self.characterGroupBoxLayout.setRowStretch(2, 2)
-
-    self.characterGroupBox = QGroupBox()
-    self.characterGroupBox.setTitle('Character')
-    self.characterGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-
-    self.characterGroupBox.setLayout(self.characterGroupBoxLayout)
-
-    ## Finish setup
-    _mainGridLayout = QGridLayout()
-    _mainGridLayout.setSpacing(30)
-    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    _mainGridLayout.addWidget(_headerLabel, 1, 0)
-    _mainGridLayout.addWidget(self.settingsGroupBox, 2, 0)
-    _mainGridLayout.addWidget(self.characterGroupBox, 2, 1)
-
-    _mainGridLayout.setColumnStretch(0, 1)
-    _mainGridLayout.setColumnStretch(1, 3)
-    self.setLayout(_mainGridLayout)
-
-  def handleClearButton(self):
-    self.nameLineEdit.clear()
-    self.classLineEdit.clear()
-    self.raceLineEdit.clear()
-    self.levelLineEdit.clear()
-    self.xpLineEdit.clear()
-    self.startingWealthSpinBox.setValue(self.startingWealthSpinBox.minimum())
-    self.titleLineEdit.clear()
-    self.alignmentComboBox.setCurrentIndex(0)
-    self.ageLineEdit.clear()
-    self.heightLineEdit.clear()
-    self.weightLineEdit.clear()
-    self.strengthSpinBox.setValue(self.strengthSpinBox.minimum())
-    self.intelligenceSpinBox.setValue(self.intelligenceSpinBox.minimum())
-    self.wisdomSpinBox.setValue(self.wisdomSpinBox.minimum())
-    self.dexteritySpinBox.setValue(self.dexteritySpinBox.minimum())
-    self.constitutionSpinBox.setValue(self.constitutionSpinBox.minimum())
-    self.charismaSpinBox.setValue(self.charismaSpinBox.minimum())
-    self.movementOverlandLabel.setText('')
-    self.movementExplorationLineEdit.clear()
-    self.movementEncounterLabel.setText('')
-    self.hdSpinBox.setValue(self.hdSpinBox.minimum())
-    self.hpLabel.setText('')
-    self.thac0SpinBox.setValue(self.thac0SpinBox.maximum())
-    self.acSpinBox.setValue(self.acSpinBox.maximum())
-    self.acBonusLabel.setText('')
-    self.meleeBonusSpinBox.setValue(self.meleeBonusSpinBox.minimum())
-    self.missileBonusSpinBox.setValue(self.missileBonusSpinBox.minimum())
-    self.savePoisonDeathSpinBox.setValue(self.savePoisonDeathSpinBox.maximum())
-    self.saveMagicWandsSpinBox.setValue(self.saveMagicWandsSpinBox.maximum())
-    self.saveParalysisPetrificationSpinBox.setValue(self.saveParalysisPetrificationSpinBox.maximum())
-    self.saveBreathAttacksSpinBox.setValue(self.saveBreathAttacksSpinBox.maximum())
-    self.saveSpellsRodsStavesSpinBox.setValue(self.saveSpellsRodsStavesSpinBox.maximum())
-    self.foragingSkillSpinBox.setValue(self.foragingSkillSpinBox.minimum())
-    self.findRoomTrapSkillSpinBox.setValue(self.findRoomTrapSkillSpinBox.minimum())
-    self.huntingSkillSpinBox.setValue(self.huntingSkillSpinBox.minimum())
-    self.listenAtDoorSkillSpinBox.setValue(self.listenAtDoorSkillSpinBox.minimum())
-    self.openStuckDoorSkillSpinBox.setValue(self.openStuckDoorSkillSpinBox.minimum())
-    self.findSecretDoorSkillSpinBox.setValue(self.findSecretDoorSkillSpinBox.minimum())
-
-  def handleSaveToFileButton(self):
-    _fileDialog = QFileDialog()
-    _fileDialog.setNameFilter('*.txt')
-    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
-    _filename = []
-
-    _filePath = ''
-    if _fileDialog.exec_():
-      _filename = _fileDialog.selectedFiles()
-      _filePath = _filename[0]
-      _fileExtension = '.txt'
-      _lastChars = _filePath[len(_filePath) - len(_fileExtension) : len(_filePath)]
-      _filePath += _fileExtension if _lastChars != _fileExtension else ''
-
-    with open(file=_filePath, mode='w', newline='') as _file:
-      _file.write(self.weatherOutputPlainText.toPlainText())
-
-  def handleGenerateButton(self):
-    # Name
-    _raceId = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='ID', valueColumnName='NAME', value=self.raceComboBox.currentText())
-    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
-    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
-
-    _fullNames = []
-    for i in range(len(_firstNames)):
-      _fullNames.append(f'{_firstNames[i]} {_lastNames[i]}')
-
-    _name = choice(_fullNames) if len(_fullNames) > 0 else choice(['John Doe', 'Jane Doe'])
-
-    self.nameLineEdit.setText(_name)
-    # Class
-    self.classLineEdit.setText(self.classComboBox.currentText())
-    # Race
-    self.raceLineEdit.setText(self.raceComboBox.currentText())
-    # level
-    self.levelLineEdit.setText(str(self.levelSpinBox.value()))
-
-    # HP
-    _rollHpTwice = False
-    if self.raceComboBox.currentText() == 'Human':
-      _rollHpTwice = True
-
-    _hds = int(self.levelLineEdit.text()) if int(self.levelLineEdit.text()) < 9 else 9
-    self.hdSpinBox.setValue(_hds)
-
-    _hpScore = 0
-    for i in range(self.hdSpinBox.value()):
-      _dieHpScore = hp.rollDice(1, 8)
-      if _rollHpTwice:
-        _dieScore = max(_dieHpScore, hp.rollDice(1, 8))
-      _hpScore += _dieHpScore
-    self.hpLabel.setText(f'HP: {str(_hpScore)}')
-
-    # Age
-    _ageScore = hp.rollDice(3, 20)
-    self.ageLineEdit.setText(str(_ageScore))
-
-    # Ability Scores
-    _reRollThreshold = 5
-    _strengthScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.strengthSpinBox.setValue(_strengthScore)
-    _intelligenceScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.intelligenceSpinBox.setValue(_intelligenceScore)
-    _wisdomScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.wisdomSpinBox.setValue(_wisdomScore)
-    _dexterityScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.dexteritySpinBox.setValue(_dexterityScore)
-    _constitutionScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.constitutionSpinBox.setValue(_constitutionScore)
-    _charismaScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
-    self.charismaSpinBox.setValue(_charismaScore)
-
-  def handleRandomCharacterButton(self):
-    pass
-
 class DungeonCreatorWidget(QWidget):
   def __init__(self):
     super().__init__()
@@ -752,7 +45,7 @@ class DungeonCreatorWidget(QWidget):
     _dungeonSizeLabel.setMaximumSize(150, 20)
 
     self.dungeonSizeComboBox = QComboBox()
-    self.dungeonSizeModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
+    self.dungeonSizeModel = dm.manager().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
     self.dungeonSizeModel.setParameter(parameterName='DUNGEON_SIZE')
     self.dungeonSizeComboBox.setModel(self.dungeonSizeModel)
     self.dungeonSizeComboBox.setModelColumn(self.dungeonSizeModel.sourceModel().record().indexOf('VALUE_1'))
@@ -771,7 +64,7 @@ class DungeonCreatorWidget(QWidget):
     _treasureTypeLabel.setMaximumSize(150, 20)
 
     self.treasureTypeComboBox = QComboBox()
-    self.treasureTypeModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
+    self.treasureTypeModel = dm.manager().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
     self.treasureTypeModel.setParameter(parameterName='TREASURE_TYPE')
     self.treasureTypeComboBox.setModel(self.treasureTypeModel)
     self.treasureTypeComboBox.setModelColumn(self.treasureTypeModel.sourceModel().record().indexOf('VALUE_4'))
@@ -1220,7 +513,7 @@ class GameParameterManager(QWidget):
 
     self.gameParameterComboBox = QComboBox()
     self.gameParameterComboBox.setMaximumWidth(200)
-    self.gameParameterTypeModel = dm.getDataModels().model(name='GAME_PARAMETER_TYPE')
+    self.gameParameterTypeModel = dm.manager().model(name='GAME_PARAMETER_TYPE')
     self.gameParameterComboBox.setModel(self.gameParameterTypeModel)
     self.gameParameterComboBox.setModelColumn(self.gameParameterTypeModel.record().indexOf('NAME'))
     self.gameParameterComboBox.currentTextChanged.connect(self.handleGameParameterComboBoxChanged)
@@ -1237,7 +530,7 @@ class GameParameterManager(QWidget):
     self.copyGameParameterButton.setMaximumWidth(80)
 
     ## Parameter view
-    self.gameParameterModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
+    self.gameParameterModel = dm.manager().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
     self.gameParameterModel.setParameter('GAME_SYSTEM')
 
     self.dataTable = QTableView()
@@ -1375,8 +668,8 @@ class GameParameterManager(QWidget):
       # ToDo Errorhandling
       return
 
-    _idColumnId = dm.getDataModels().columnId('GAME_PARAMETER_TYPE', 'ID')
-    _nameColumnId = dm.getDataModels().columnId('GAME_PARAMETER_TYPE', 'NAME')
+    _idColumnId = dm.manager().columnId('GAME_PARAMETER_TYPE', 'ID')
+    _nameColumnId = dm.manager().columnId('GAME_PARAMETER_TYPE', 'NAME')
 
     # Check if parameter name is already in use
     _parameterExists = False
@@ -1449,9 +742,9 @@ class WeatherWidget(QWidget):
     super().__init__()
 
     # Data Models
-    self.climateModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
+    self.climateModel = dm.manager().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
     self.climateModel.setParameter(parameterName='CLIMATE')
-    self.monthModel = dm.getDataModels().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
+    self.monthModel = dm.manager().defineProxyModel(modelType=dm.GameParameterProxyModel, sourceModel='GAME_PARAMETER')
     self.monthModel.setParameter(parameterName='MONTH')
 
     # Header Label
@@ -1585,8 +878,8 @@ class WeatherWidget(QWidget):
   def handleGenerateYearButton(self):
     _climateStr = self.climateComboBox.currentText()
     _timespan = 4
-    _months = dm.getDataModels().modelData(modelName='MONTH', columns=('ID', 'NAME'))
-    _climate = dm.getDataModels().modelData(modelName='CLIMATE', columns=('ID', 'NAME'), one=True)
+    _months = dm.manager().modelData(modelName='MONTH', columns=('ID', 'NAME'))
+    _climate = dm.manager().modelData(modelName='CLIMATE', columns=('ID', 'NAME'), one=True)
 
     self.weatherOutputPlainText.appendPlainText(f'Climate: {_climateStr}\n')
     for _month in _months:
@@ -1687,7 +980,6 @@ class Tools(QWidget):
   def __init__(self):
     super().__init__()
 
-    self.characterBuilderButton = QPushButton("Character Builder")
     self.dungeonRoomButton = QPushButton("Dungeon Creator")
     self.itemDataManagerButton = QPushButton("Foundry Data Manager")
     self.gameParameterManagerButton = QPushButton("Game Parameter Manager")
@@ -1696,7 +988,6 @@ class Tools(QWidget):
     self.menuWidget = QWidget()
     self.defineMenuLayout()
 
-    self.characterBuilderWidget = CharacterBuildWidget()
     self.dungeonRoomWidget = DungeonCreatorWidget()
     self.gameParameterManagerWidget = GameParameterManager()
     self.weatherWidget = WeatherWidget()
@@ -1713,22 +1004,19 @@ class Tools(QWidget):
     self.contentStackedWidget.setCurrentWidget(widget)
 
   def defineMenuLayout(self):
-    self.characterBuilderButton.clicked.connect(lambda clicked: self.changeWidget(self.characterBuilderWidget))
     self.dungeonRoomButton.clicked.connect(lambda clicked: self.changeWidget(self.dungeonRoomWidget))
     self.gameParameterManagerButton.clicked.connect(lambda clicked: self.changeWidget(self.gameParameterManagerWidget))
     self.weatherButton.clicked.connect(lambda clicked: self.changeWidget(self.weatherWidget))
 
     menuLayout = QVBoxLayout()
-    menuLayout.addWidget(self.characterBuilderButton)
-    #menuLayout.addWidget(self.dungeonRoomButton)
-    #menuLayout.addWidget(self.gameParameterManagerButton)
-    #menuLayout.addWidget(self.weatherButton)
+    menuLayout.addWidget(self.dungeonRoomButton)
+    menuLayout.addWidget(self.gameParameterManagerButton)
+    menuLayout.addWidget(self.weatherButton)
     menuLayout.setSpacing(15)
     menuLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.menuWidget.setLayout(menuLayout)
 
   def defineContentStackedWidget(self):
-    self.contentStackedWidget.addWidget(self.characterBuilderWidget)
     self.contentStackedWidget.addWidget(self.dungeonRoomWidget)
     self.contentStackedWidget.addWidget(self.gameParameterManagerWidget)
     self.contentStackedWidget.addWidget(self.weatherWidget)

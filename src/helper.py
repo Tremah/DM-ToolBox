@@ -1,9 +1,82 @@
 import random as rand
 import math
 import re as re
-from pathlib import Path
+import json
 
-def rollDice(amount, faces):
+from PySide6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QApplication, QMainWindow
+
+# Classes
+class OkCancelDialog(QDialog):
+  def __init__(self, title='', text=''):
+    super().__init__()
+
+    self.setWindowTitle(title)
+
+    _buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+    _buttons.accepted.connect(self.accept)
+    _buttons.rejected.connect(self.reject)
+
+    _layout = QVBoxLayout(self)
+    _layout.addWidget(QLabel(text))
+    _layout.addWidget(_buttons)
+
+# Functions
+
+def coalesce(*values):
+  for _value in values:
+    if _value:
+      return _value
+
+  return None
+
+def fillSqlPlaceholders(statement, values=()):
+  _statement = statement
+  for _value in values:
+    _statement = _statement.replace('?', repr(_value), 1)
+
+  return _statement
+
+def getMainWindow():
+  for _widget in QApplication.topLevelWidgets():
+    if isinstance(_widget, QMainWindow):
+      return _widget
+
+  return None
+
+def isStringAnInteger(string):
+  try:
+    int(string)
+    return True
+  except ValueError:
+    return False
+
+def makeFileDialog(acceptedFileExtensions='', multipleFiles=False):
+  _fileDialog = QFileDialog()
+
+  if acceptedFileExtensions:
+    _fileDialog.setNameFilter(acceptedFileExtensions)
+
+  _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+  if multipleFiles:
+    _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+
+  _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+  _filename = []
+
+  if _fileDialog.exec_():
+    _filenames = _fileDialog.selectedFiles()
+    return _filenames
+
+  return None
+
+def readJson(filePath):
+  _jsonContent = None
+  with open(filePath, "r", encoding="utf-8") as _f:
+    _jsonContent = json.load(_f)
+
+  return _jsonContent
+
+def rollDice(amount : int, faces : int) -> int:
   if faces == 1:
     return amount
 
@@ -37,6 +110,70 @@ def splitDiceRollFormula(formula=''):
 
 # Splits value statement into its components, statement = <die roll>{1} <arithm. operator>{+} <unit>{1}
 def splitAndProcessValueStatement(statement=''):
+  # Check if statement contains a text at the end and extract/remove it
+  _statement = statement.strip()
+  _regexPattern = r'.+?\s([a-zA-Z]+)'
+  _matches = re.findall(_regexPattern, _statement)
+
+  _appendix = ''
+  _appendixLength = 0
+  if _matches:
+    _appendixLength = len(''.join(_matches))
+    _appendix = ' '.join(_matches)
+
+  _statement = _statement[0 : len(_statement) - _appendixLength].strip()
+
+  # Process statement
+  _operators = ['+', '-', '*']
+  _statementParts = []
+  _operator = None
+  while True:
+    _operatorPos = -1
+    for _op in _operators:
+      _operator = _op
+      _operatorPos = _statement.find(_operator)
+      if _operatorPos != -1:
+        break
+
+    # No valid operator found
+    if _operatorPos == -1:
+      _run = False
+      break
+
+    _statementParts.append(_statement[0:_operatorPos])
+    _statementParts.append(_statement[_operatorPos+1:])
+    break
+
+  _dieStatement = ''
+  _constantValue = ''
+  for _part in _statementParts:
+    _regexPattern = r'[0-9]+d[0-9]+'
+    _matches = re.findall(_regexPattern, _part)
+    if _matches:
+      _dieStatement = _matches[0].replace(' ','')
+      continue
+
+    _regexPattern = r'[0-9]+'
+    _matches = re.findall(_regexPattern, _part)
+    if _matches:
+      _constantValue = int(_matches[0].replace(' ',''))
+      continue
+
+  _sum = 0
+  if _dieStatement:
+    _amount, _faces = _dieStatement.split('d')
+    _sum = rollDice(int(_amount), int(_faces))
+
+  if _constantValue:
+    if _operator == '+':
+      _sum += _constantValue
+    elif _operator == '-':
+      _sum -= _constantValue
+    elif _operator == '*':
+      _sum *= _constantValue
+
+  return [_sum, _appendix]
+
   # Extract relevant parts of the statement
   # (\d+(?:d\d+)?) = die statement
   # ([+\-*x]\s?\d+)? = optional constant value
@@ -44,6 +181,9 @@ def splitAndProcessValueStatement(statement=''):
   _statement = ' '.join(statement.split())
   _regexPattern = r'(\d+(?:d\d+)?) ?([+\-*x]\s?\d+)? ?(.*)'
   _matches = re.findall(_regexPattern, _statement)
+
+  for _match in _matches:
+    _regexPattern = r''
 
   _dieComponent = _matches[0][0]
   _constantValueComponent = _matches[0][1]
@@ -80,3 +220,4 @@ def traversePath(path):
       _filesInPath.append(_file)
 
   return _filesInPath
+

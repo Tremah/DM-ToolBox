@@ -13,9 +13,15 @@ def openConnection(driver, path):
 def closeConnection():
   QSqlDatabase.database().close()
 
-def begin():
+def beginTransaction():
   _database = QSqlDatabase.database()
   _database.transaction()
+
+def delete(statement, args=(), commit=False):
+  return query(statement, args, commit)
+
+def endTransaction():
+  commitChanges()
 
 def commitChanges():
   return QSqlDatabase.database().commit()
@@ -30,10 +36,13 @@ def printError(error):
   print(f'Error Type: {error.type()}')
   print(f'Error Message: {error.text()}')
 
-def printLastError():
+def printLastError(message=''):
+  if message:
+    logging.error(message)
+
   printError(QSqlDatabase.database().lastError())
 
-def getTableColumnStructure(table, column):
+def getTableColumnInfo(table, column):
   _tableStructure = getTableStructure(table)
 
   for _column in _tableStructure['COLUMNS']:
@@ -144,7 +153,8 @@ def query(statement, args=(), commit=False, one=False):
   _isSelect = statement.lstrip().lower().startswith('select')
   _isInsert = statement.lstrip().lower().startswith('insert')
   _isUpdate = statement.lstrip().lower().startswith('update')
-  _isAlter = statement.lstrip().lower().startswith('alter')
+  _isAlter  = statement.lstrip().lower().startswith('alter')
+  _isDelete = statement.lstrip().lower().startswith('delete')
 
   if not _query.prepare(statement):
     printError(_query.lastError())
@@ -177,7 +187,7 @@ def query(statement, args=(), commit=False, one=False):
 
     return []
 
-  if _isInsert or _isUpdate:
+  if _isUpdate or _isDelete or _isAlter or _isInsert:
     if commit:
       commitChanges()
     _query.finish()

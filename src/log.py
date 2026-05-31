@@ -14,7 +14,7 @@ class LogWindow(QWidget, logging.Handler):
     self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
 
     self.logTextEdit = QTextEdit(self)
-    self.logTextEdit.setFont(QFont('Ubuntu Sans', 11))
+    self.logTextEdit.setFont(QFont('Ubuntu Sans', 12))
     self.logTextEdit.setReadOnly(True)
 
     self.clearButton = QPushButton('Clear')
@@ -39,9 +39,13 @@ class LogWindow(QWidget, logging.Handler):
       fmt.setForeground(QColor("red"))
     elif record.levelno >= logging.WARNING:
       fmt.setForeground(QColor("orange"))
+    elif record.levelno >= logging.INFO:
+      pass
+    elif record.levelno >= logging.DEBUG:
+      print(f'[DEBUG] : {_msg}')
 
     _cursor.insertText(_msg + '\n', fmt)
-    self.logTextEdit.setTextCursor(_cursor)
+
 
 
 

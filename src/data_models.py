@@ -219,11 +219,17 @@ class DataModels:
     # Simple models
     self.models['ALIGNMENT'] = self.defineModel(table='ALIGNMENT')
     self.models['CHALLENGE_RATING'] = self.defineModel(table='CHALLENGE_RATING')
-    self.models['CLASS'] = self.defineModel(table='CLASS')
+    self.models['CHARACTER'] = self.defineModel(table='CHARACTER')
+    self.models['CHARACTER_PROPERTY'] = self.defineModel(table='CHARACTER_PROPERTY')
+    self.models['CHARACTER_X_CHARACTER_PROPERTY'] = self.defineModel(table='CHARACTER_X_CHARACTER_PROPERTY')
+    self.models['CLASS'] = self.defineClassModel()
+    self.models['CLASS_PROPERTY'] = self.defineModel(table='CLASS_PROPERTY')
     self.models['CLIMATE'] = self.defineModel(table='CLIMATE')
     self.models['CLIMATE_X_MONTH_X_PRECIPITATION_CLASS'] = self.defineModel(table='CLIMATE_X_MONTH_X_PRECIPITATION_CLASS')
     self.models['CREATURE_NAME'] = self.defineModel(table='CREATURE_NAME')
     self.models['CREATURE_TYPE'] = self.defineModel(table='CREATURE_TYPE')
+    self.models['CREATURE_X_GAME_SYSTEM'] = self.defineModel(table='CREATURE_X_GAME_SYSTEM')
+    self.models['CREATURE_X_ENVIRONMENT'] = self.defineModel(table='CREATURE_X_ENVIRONMENT')
     self.models['CONTENT_SOURCE'] = self.defineModel(table='CONTENT_SOURCE')
     self.models['ENVIRONMENT'] = self.defineModel(table='ENVIRONMENT')
     self.models['GAME_SYSTEM'] = self.defineModel(table='GAME_SYSTEM')
@@ -236,8 +242,6 @@ class DataModels:
     # Models with foreign key support
     self.models['CREATURE_5E'] = self.define5eCreatureModel()
     self.models['CREATURE_OSR'] = self.defineOsrCreatureModel()
-    self.models['CREATURE_X_GAME_SYSTEM'] = self.defineModel(table='CREATURE_X_GAME_SYSTEM')
-    self.models['CREATURE_X_ENVIRONMENT'] = self.defineModel(table='CREATURE_X_ENVIRONMENT')
 
     # Other
     self.models['FOUNDRY_DOCUMENTS_DATABASE_ITEMS'] = self.defineFoundryDocumentsDatabaseItemsModel()
@@ -246,21 +250,25 @@ class DataModels:
     _columnId = self.models[modelName].record().indexOf(columnName)
     return _columnId
 
-  def getDataForModelIndex(self, modelName, columnName, valueColumnName, value):
+  # Returns the value for one specific index
+  # The row is determined by applying filterColumns and filterValue
+  def getDataForModelIndex(self, modelName : str, columnName : str, filterColumn : str ='', filterValue : str ='') -> str | int:
     _model = self.models[modelName]
-    _valueColumnId = self.columnId(modelName, valueColumnName)
+    _filterColumnId = self.columnId(modelName, filterColumn)
     for i in range(_model.rowCount()):
-      _value = _model.data(_model.index(i, _valueColumnId))
-      if _value == value:
-        _targetColumnId = self.columnId(modelName, columnName)
-        _tValue = _model.data(_model.index(i, _targetColumnId))
+      _value = _model.data(_model.index(i, _filterColumnId))
+      if _value == filterValue:
+        _dataColumnId = self.columnId(modelName, columnName)
+        _tValue = _model.data(_model.index(i, _dataColumnId))
         return _tValue
 
     return None
 
-  def getDataForModelColumn(self, modelName, columName, filterColumn='', filterValue=''):
+  # Returns the data for an entire model column
+  # Potential filters can be applied to select certain rows from the model
+  def getDataForModelColumn(self, modelName : str, columnName : str, filterColumn : str ='', filterValue : str ='') -> list:
     _model = self.models[modelName]
-    _columnId = self.columnId(modelName, columName)
+    _columnId = self.columnId(modelName, columnName)
     _valueList = []
 
     _filterColumnId = -1
@@ -277,6 +285,62 @@ class DataModels:
       _valueList.append(_value)
 
     return _valueList
+
+  # Returns either
+  #   A list of dictionaries containing the data for each column, with the column's names as their keys
+  #   A dictionary containing the data, with the column's names as their keys
+  def getDataForModelColumns(self, modelName : str, columns : list, filterColumn : str ='', filterValue : str ='') -> list | dict:
+    _model = self.models[modelName]
+
+    _result = []
+    _rowData = {}
+    for _row in range(_model.rowCount()):
+      # Get data for the entire row
+      _rowDataRaw = self.getDataForModelRow(modelName=modelName, rowIndex=_row, filterColumn=filterColumn, filterValue=filterValue)
+      if not _rowDataRaw:
+        continue
+
+      if filterColumn:
+        if _rowDataRaw[filterColumn] != filterValue:
+          continue
+
+      # Filter data by applying the supplied list of columns
+      for _key in _rowDataRaw.keys():
+        if _key in columns:
+          _rowData[_key] = _rowDataRaw[_key]
+      _result.append(_rowData)
+      _rowData = {}
+
+    if len(_result) == 1:
+      return _result[0]
+    else:
+      return _result
+
+  # Returns the data for an entire model row
+  # The row can be selected by either supplying a row index or a filter column and value
+  # Both are mutually exclusive while row Index will be treated as a priority
+  def getDataForModelRow(self, modelName : str, rowIndex : int = -1, filterColumn : str ='', filterValue : str ='') -> dict | None:
+    _model = self.models[modelName]
+    _columnCount = _model.columnCount()
+    _rowData = {}
+
+    if rowIndex != -1:
+      _model = self.models[modelName]
+      for i in range(_columnCount):
+        _index = _model.index(rowIndex, i)
+        _data = _model.data(_index)
+        _rowData[_model.headerData(i, Qt.Orientation.Horizontal)] = _data
+
+      return _rowData
+    elif filterColumn and filterValue:
+      for i in range(_model.columnCount()):
+        _columnName = _model.headerData(i, Qt.Orientation.Horizontal)
+        _data = self.getDataForModelIndex(modelName=modelName, columnName=_columnName, filterColumn=filterColumn, filterValue=filterValue)
+        _rowData[_columnName] = _data
+
+      return _rowData
+
+    return _rowData
 
   def defineModel(self, modelType=QSqlTableModel, table=None, fetchAll=True, editStrategy=QSqlTableModel.EditStrategy.OnManualSubmit):
     _model = modelType()
@@ -295,7 +359,7 @@ class DataModels:
 
   def defineProxyModel(self, modelType=QSortFilterProxyModel, sourceModel=None):
     _model = modelType()
-    _model.setSourceModel(getDataModels().model(sourceModel))
+    _model.setSourceModel(manager().model(sourceModel))
 
     while _model.canFetchMore(QModelIndex()):
       _model.fetchMore(QModelIndex())
@@ -373,7 +437,6 @@ class DataModels:
 
     _propertySqlStatementsStr = ','.join(_propertySqlStatements)
 
-
     _query = f'''      
       select distinct
         c.ID,
@@ -411,6 +474,27 @@ class DataModels:
         c.NAME     
       order by
         c.ID
+    '''
+
+    _model = QSqlQueryModel()
+    _model.setQuery(_query)
+    _rc = _model.rowCount()
+    while _model.canFetchMore():
+      _model.fetchMore()
+
+    return _model
+
+  def defineClassModel(self):
+    _query = f'''
+      select
+        cl.ID,
+        cl.NAME,
+        case when cl.CUSTOM = 1 then 'Yes' else 'No' end as CUSTOM
+      from
+        CLASS cl
+        left join GAME_SYSTEM gs on cl.GAME_SYSTEM = gs.ID 
+      order by
+        cl.NAME
     '''
 
     _model = QSqlQueryModel()
@@ -491,5 +575,5 @@ class DataModels:
 
 dataModels = DataModels()
 
-def getDataModels():
+def manager():
   return dataModels
