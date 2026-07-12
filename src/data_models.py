@@ -252,12 +252,18 @@ class DataModels:
 
   # Returns the value for one specific index
   # The row is determined by applying filterColumns and filterValue
-  def getDataForModelIndex(self, modelName : str, columnName : str, filterColumn : str ='', filterValue : str ='') -> str | int:
+  def getDataForModelIndex(self, modelName : str, columnName : str, filterColumns : tuple, filterValues : tuple) -> str | int | bool | None:
     _model = self.models[modelName]
-    _filterColumnId = self.columnId(modelName, filterColumn)
     for i in range(_model.rowCount()):
-      _value = _model.data(_model.index(i, _filterColumnId))
-      if _value == filterValue:
+      # Loop over filter columns and determine if the row contains the searched-for value
+      _filterValuesFound = 0
+      for j, _filterColumn in enumerate(filterColumns):
+        _filterColumnId = self.columnId(modelName, _filterColumn)
+        _value = _model.data(_model.index(i, _filterColumnId))
+        if _value == filterValues[j]:
+          _filterValuesFound += 1
+
+      if _filterValuesFound == len(filterColumns):
         _dataColumnId = self.columnId(modelName, columnName)
         _tValue = _model.data(_model.index(i, _dataColumnId))
         return _tValue
@@ -335,7 +341,7 @@ class DataModels:
     elif filterColumn and filterValue:
       for i in range(_model.columnCount()):
         _columnName = _model.headerData(i, Qt.Orientation.Horizontal)
-        _data = self.getDataForModelIndex(modelName=modelName, columnName=_columnName, filterColumn=filterColumn, filterValue=filterValue)
+        _data = self.getDataForModelIndex(modelName=modelName, columnName=_columnName, filterColumns=(filterColumn,), filterValues=(filterValue,))
         _rowData[_columnName] = _data
 
       return _rowData
@@ -359,7 +365,7 @@ class DataModels:
 
   def defineProxyModel(self, modelType=QSortFilterProxyModel, sourceModel=None):
     _model = modelType()
-    _model.setSourceModel(manager().model(sourceModel))
+    _model.setSourceModel(getDataModels().model(sourceModel))
 
     while _model.canFetchMore(QModelIndex()):
       _model.fetchMore(QModelIndex())
@@ -489,7 +495,9 @@ class DataModels:
       select
         cl.ID,
         cl.NAME,
-        case when cl.CUSTOM = 1 then 'Yes' else 'No' end as CUSTOM
+        cl.USES_MAGIC,
+        cl.CUSTOM,
+        cl.GAME_SYSTEM
       from
         CLASS cl
         left join GAME_SYSTEM gs on cl.GAME_SYSTEM = gs.ID 
@@ -575,5 +583,5 @@ class DataModels:
 
 dataModels = DataModels()
 
-def manager():
+def getDataModels():
   return dataModels

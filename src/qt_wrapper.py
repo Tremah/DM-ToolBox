@@ -26,7 +26,7 @@ class CreatureFilterGroupBox(QGroupBox):
     _standardHeight = 250
 
     # Get relevant data models
-    _dataModels = dm.manager()
+    _dataModels = dm.getDataModels()
 
     # Define models and filter
     self.systemModel = _dataModels.model('GAME_SYSTEM')
@@ -167,11 +167,11 @@ class CreatureFilterGroupBox(QGroupBox):
     for i in range(self.nameModel.rowCount()):
       _items['ID'].append(self.nameModel.data(self.nameModel.index(i, _colId)))
 
-    _items['TYPE'] = dm.manager().modelData(modelName='CREATURE_TYPE', columns=('NAME',))
-    _items['CR'] = dm.manager().modelData(modelName='CHALLENGE_RATING', columns=('CR',))
-    _items['ALIGNMENT'] = dm.manager().modelData(modelName='ALIGNMENT', columns=('NAME',))
-    _items['ENVIRONMENT'] = dm.manager().modelData(modelName='ENVIRONMENT', columns=('NAME',))
-    _items['SOURCE'] = dm.manager().modelData(modelName='CONTENT_SOURCE', columns=('NAME',))
+    _items['TYPE'] = dm.getDataModels().modelData(modelName='CREATURE_TYPE', columns=('NAME',))
+    _items['CR'] = dm.getDataModels().modelData(modelName='CHALLENGE_RATING', columns=('CR',))
+    _items['ALIGNMENT'] = dm.getDataModels().modelData(modelName='ALIGNMENT', columns=('NAME',))
+    _items['ENVIRONMENT'] = dm.getDataModels().modelData(modelName='ENVIRONMENT', columns=('NAME',))
+    _items['SOURCE'] = dm.getDataModels().modelData(modelName='CONTENT_SOURCE', columns=('NAME',))
 
     return _items
 
@@ -189,7 +189,7 @@ class CreatureFilterGroupBox(QGroupBox):
     for i in range (self.creatureGameSystemModel.rowCount()):
       _ids['ID'].append(self.creatureGameSystemModel.data(self.creatureGameSystemModel.index(i, self.creatureGameSystemModel.sourceModel().record().indexOf('ID'))))
 
-    _dataModels = dm.manager()
+    _dataModels = dm.getDataModels()
     if self.systemFilter.currentText() in ('OSE', 'B/X'):
       self.creatureModel = _dataModels.model('CREATURE_OSR')
       self.nameModel = _dataModels.defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR')
@@ -391,9 +391,9 @@ class DataTable(QTableView):
 
   def setDataModel(self, model):
     if model in ('OSE', 'B/X'):
-      self.setModel(dm.manager().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR'))
+      self.setModel(dm.getDataModels().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR'))
     elif model in ('D&D 5e'):
-      self.setModel(dm.manager().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_5E'))
+      self.setModel(dm.getDataModels().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_5E'))
 
     self.hideColumns()
 

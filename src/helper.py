@@ -2,8 +2,11 @@ import random as rand
 import math
 import re as re
 import json
+import csv
+from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QApplication, QMainWindow
+from pypdf import PdfReader, PdfWriter
 
 # Classes
 class OkCancelDialog(QDialog):
@@ -36,6 +39,9 @@ def fillSqlPlaceholders(statement, values=()):
 
   return _statement
 
+def getDirContents(path : Path) -> list:
+  return [f for f in path.iterdir()]
+
 def getMainWindow():
   for _widget in QApplication.topLevelWidgets():
     if isinstance(_widget, QMainWindow):
@@ -50,19 +56,25 @@ def isStringAnInteger(string):
   except ValueError:
     return False
 
-def makeFileDialog(acceptedFileExtensions='', multipleFiles=False):
+def makeFileDialog(acceptedFileExtensions : str | list = '', multipleFiles : bool = False, acceptMode : QFileDialog.AcceptMode = QFileDialog.AcceptMode.AcceptOpen, saveFileName : str = '') -> list | None:
   _fileDialog = QFileDialog()
 
   if acceptedFileExtensions:
-    _fileDialog.setNameFilter(acceptedFileExtensions)
+    if type(acceptedFileExtensions) is str:
+      _fileDialog.setNameFilter(acceptedFileExtensions)
+    else:
+      _fileDialog.setNameFilters(acceptedFileExtensions)
 
-  _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-  if multipleFiles:
-    _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+  _fileDialog.setAcceptMode(acceptMode)
 
-  _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-  _filename = []
+  if acceptMode == QFileDialog.AcceptMode.AcceptOpen:
+    _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+    if multipleFiles:
+      _fileDialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+  elif acceptMode == QFileDialog.AcceptMode.AcceptSave:
+    _fileDialog.setFileMode(QFileDialog.FileMode.AnyFile)
 
+  _fileNames = []
   if _fileDialog.exec_():
     _filenames = _fileDialog.selectedFiles()
     return _filenames
@@ -70,11 +82,30 @@ def makeFileDialog(acceptedFileExtensions='', multipleFiles=False):
   return None
 
 def readJson(filePath):
-  _jsonContent = None
   with open(filePath, "r", encoding="utf-8") as _f:
-    _jsonContent = json.load(_f)
+    return json.load(_f)
 
-  return _jsonContent
+def readPdf(filePath):
+  _pdfReader = PdfReader(filePath)
+  _pageCount = len(_pdfReader.pages)
+
+  _fields = _pdfReader.get_fields()
+  _listFormatted = '\n'.join(list(_fields.keys()))
+  with open('/home/patrick/Desktop/ose_cs_pdf_fields.txt', "w", encoding="utf-8") as _f:
+    _f.write(_listFormatted)
+
+  _pages = _pdfReader.pages
+
+  _p = _pdfReader.get_pages_showing_field(_fields['Equipment'])
+
+  _pdfWriter = PdfWriter()
+  _pdfWriter.append(_pdfReader)
+
+  _pdfWriter.update_page_form_field_values(_pdfWriter.pages[0], {"Name": "John Doe"}, auto_regenerate=False) #, flatten=True)
+  #_pdfWriter.remove_annotations(subtypes='/Widget')
+
+  _pdfWriter.write('/home/patrick/Desktop/test.pdf')
+  pass
 
 def rollDice(amount : int, faces : int) -> int:
   if faces == 1:
@@ -174,40 +205,6 @@ def splitAndProcessValueStatement(statement=''):
 
   return [_sum, _appendix]
 
-  # Extract relevant parts of the statement
-  # (\d+(?:d\d+)?) = die statement
-  # ([+\-*x]\s?\d+)? = optional constant value
-  # ?(.*) = unit, i.e. cp, levels, magic item
-  _statement = ' '.join(statement.split())
-  _regexPattern = r'(\d+(?:d\d+)?) ?([+\-*x]\s?\d+)? ?(.*)'
-  _matches = re.findall(_regexPattern, _statement)
-
-  for _match in _matches:
-    _regexPattern = r''
-
-  _dieComponent = _matches[0][0]
-  _constantValueComponent = _matches[0][1]
-  _unitComponent = _matches[0][2]
-
-  # Roll die
-  if _dieComponent.find('d') != -1:
-    _numberOfDice, _dieFaces = _dieComponent.split('d')
-    _dieResult = rollDice(int(_numberOfDice), int(_dieFaces))
-  else:
-    _dieResult = int(_dieComponent)
-
-  # Handle constant value part
-  if len(_constantValueComponent) > 0:
-    _operator, _constantValue = _constantValueComponent.split()
-    if _operator == '+':
-      _dieResult += int(_constantValue)
-    elif _operator == '-':
-      _dieResult -= int(_constantValue)
-    elif _operator == '*' or _operator == 'x':
-      _dieResult *= int(_constantValue)
-
-  return [_dieResult, _unitComponent]
-
 # Determines contents of a directory recursively
 # Returns a list with full file names, including their path as Path()
 def traversePath(path):
@@ -221,3 +218,21 @@ def traversePath(path):
 
   return _filesInPath
 
+def writeDictToCsv(data : dict, filePath : Path, delimiter : str = ';'):
+  with open(filePath, 'w', newline='', encoding='utf-8') as _file:
+    _writer = csv.DictWriter(_file, fieldnames=data.keys(), delimiter=delimiter)
+    _writer.writeheader()
+    _writer.writerow(data)
+
+def writeDictToJson(data : dict, filePath : Path):
+  with open(filePath, 'w', encoding='utf-8') as _file:
+    json.dump(data, _file, indent=2)
+
+def writeDictToYaml(data : dict, filePath : Path):
+  _finalYamlStr = ''
+  for _key in data.keys():
+    _str = f'{_key}: {str(data[_key])}'
+    _finalYamlStr += _str + '\n'
+
+  with open(filePath, 'w', encoding='utf-8') as _file:
+    _file.write(_finalYamlStr)

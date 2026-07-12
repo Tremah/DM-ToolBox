@@ -1,6 +1,6 @@
 import json
 
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem, QGroupBox
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem, QGroupBox, QTableView
 
 # Classes
 
@@ -74,6 +74,13 @@ def deserializeTableWidgetFromJson(jsonStr : str):
       _tableWidget.setItem(_i, _j, QTableWidgetItem(_value))
 
   return _tableWidget
+
+def getColumnIdFromTableWidget(table : QTableWidget, columnName : str) -> int | None :
+  for i in range(table.columnCount()):
+    if table.horizontalHeaderItem(i).text() == columnName:
+      return i
+
+  return None
 
 def getItemsFromGridLayoutRow(layout : QGridLayout, row : int):
   _items = []

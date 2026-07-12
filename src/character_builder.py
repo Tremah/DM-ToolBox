@@ -2,6 +2,7 @@ import copy
 import json
 import logging
 import math
+import pathlib
 from random import choice
 from collections.abc import Callable
 
@@ -21,16 +22,18 @@ from PySide6.QtWidgets import (
   QInputDialog, QDialog, QAbstractItemView, QToolButton, QDoubleSpinBox
 )
 
+from pypdf import PdfReader, PdfWriter
+
 from database import beginTransaction
 from src import data_models as dm
 from src import database as db
 from src import helper as hp
 from src import qt_helper as qh
 from src import qt_wrapper as qw
-from src.game_system_data_models.ose import ose
 from src import app_config as apc
+from src import data_access as data
 
-class CharacterBuildWidget(QWidget):
+class CharacterBuilderWidget(QWidget):
   def __init__(self):
     super().__init__()
 
@@ -39,13 +42,10 @@ class CharacterBuildWidget(QWidget):
     self.classData = None
     self.hpRolls = []
 
-    oseModel = ose.OseCharacterDataModel()
-    oseModel.createCharacter()
-
     # Data Models
-    self.raceModel = dm.manager().model('RACE')
-    self.classModel = dm.manager().model('CLASS')
-    self.alignmentModel = dm.manager().model('ALIGNMENT')
+    self.raceModel = dm.getDataModels().model('RACE')
+    self.classModel = dm.getDataModels().model('CLASS')
+    self.alignmentModel = dm.getDataModels().model('ALIGNMENT')
 
     # Header Label
     _headerLabel = QLabel('Character Builder')
@@ -87,16 +87,18 @@ class CharacterBuildWidget(QWidget):
     self.xpLineEdit.setText('0')
     self.xpLineEdit.setProperty('name', 'xp')
 
+    # XP Bonus
+    _xpBonusLineEditLabel = QLabel('XP Bonus:')
+    self.xpBonusLineEdit = QLineEdit()
+    self.xpBonusLineEdit.setProperty('name', 'xp_bonus')
+    self.xpBonusLineEdit.setText('None')
+
     # Starting Wealth
     _startingWealthSpinBoxLabel = QLabel('Starting Wealth:')
     _startingWealthSpinBoxLabel.setToolTip('Gold Pieces')
     self.startingWealthSpinBox = self.makeSpinBox(name='starting_wealth', minValue=0, maxValue=10000, currentValue=0)
 
     _rollStartingWealthButton = self.makeRollToolButtonForProperty('Roll Starting Wealth', self.handleRollStartingWealthButton)
-
-    _languagesLineEditLabel = QLabel('Languages:')
-    self.languagesLineEdit = QLineEdit()
-    self.languagesLineEdit.setProperty('name', 'languages')
 
     # Character title
     _titleLineEditLabel = QLabel('Title:')
@@ -267,19 +269,19 @@ class CharacterBuildWidget(QWidget):
     _minSave = 1
     _maxSave = 16
     _savePoisonDeathSpinBoxLabel = QLabel('Death, Poison:')
-    self.savePoisonDeathSpinBox = self.makeSpinBox(name='saving_throw_d', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
+    self.savePoisonDeathSpinBox = self.makeSpinBox(name='save_d', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
 
     _saveMagicWandsSpinBoxLabel = QLabel('Magic Wands:')
-    self.saveMagicWandsSpinBox = self.makeSpinBox(name='saving_throw_w', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
+    self.saveMagicWandsSpinBox = self.makeSpinBox(name='save_w', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
 
     _saveParalysisPetrificationSpinBoxLabel = QLabel('Paralysis, Petrification:')
-    self.saveParalysisPetrificationSpinBox = self.makeSpinBox(name='saving_throw_p', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
+    self.saveParalysisPetrificationSpinBox = self.makeSpinBox(name='save_p', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
 
     _saveBreathAttacksSpinBoxLabel = QLabel('Breath Attacks:')
-    self.saveBreathAttacksSpinBox = self.makeSpinBox(name='saving_throw_b', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
+    self.saveBreathAttacksSpinBox = self.makeSpinBox(name='save_b', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
 
     _saveSpellsRodsStavesSpinBoxLabel = QLabel('Spells, Magic Rods and Staves:')
-    self.saveSpellsRodsStavesSpinBox = self.makeSpinBox(name='saving_throw_s', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
+    self.saveSpellsRodsStavesSpinBox = self.makeSpinBox(name='save_s', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
 
     _wisdomModifierToSaveVsMagicLabel = QLabel('Wisdom modifier to saves vs. magic:')
     self.wisdomModifierToSaveVsMagicSpinBox = self.makeSpinBox(name='wisdom_mod_to_save_vs_magic', minValue=_minSave, maxValue=_maxSave, currentValue=_maxSave)
@@ -310,7 +312,7 @@ class CharacterBuildWidget(QWidget):
     _findSecretDoorSkillLabel = QLabel('Find Secret Door:')
     self.findSecretDoorSkillSpinBox = self.makeSpinBox(name='skill_find_secret_door', minValue=1, maxValue=6, currentValue=1)
 
-    # INFO #
+    # LANGUAGES #
     _literacyLabel = QLabel('Literacy:')
     _literacyLabel.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
     self.literacyLineEdit = QLineEdit()
@@ -319,7 +321,11 @@ class CharacterBuildWidget(QWidget):
     self.spokenLanguagesLineEdit = QLineEdit()
     self.spokenLanguagesLineEdit.setProperty('name', 'spokenLanguages')
 
-    _npcReactionsModifierLabel = QLabel('NPC Reactions:')
+    _languagesLineEditLabel = QLabel('Languages:')
+    self.languagesLineEdit = QLineEdit()
+    self.languagesLineEdit.setProperty('name', 'languages')
+
+    _npcReactionsModifierLabel = QLabel('NPC Reactions Mod:')
     self.npcReactionsModifierSpinBox = QSpinBox()
     self.npcReactionsModifierSpinBox.setMinimum(-10)
     self.npcReactionsModifierSpinBox.setMaximum(10)
@@ -362,17 +368,17 @@ class CharacterBuildWidget(QWidget):
     self.generalGroupBoxLayout.addWidget(_ageSpinBoxLabel, 3, 3)
     self.generalGroupBoxLayout.addWidget(self.ageSpinBox, 3, 4)
     self.generalGroupBoxLayout.addWidget(_rollCharacterAgeButton, 3, 5)
-    self.generalGroupBoxLayout.addWidget(_startingWealthSpinBoxLabel, 4, 0)
-    self.generalGroupBoxLayout.addWidget(self.startingWealthSpinBox, 4, 1)
-    self.generalGroupBoxLayout.addWidget(_rollStartingWealthButton, 4, 2)
+    self.generalGroupBoxLayout.addWidget(_xpBonusLineEditLabel, 4, 0)
+    self.generalGroupBoxLayout.addWidget(self.xpBonusLineEdit, 4, 1)
     self.generalGroupBoxLayout.addWidget(_heightLineEditLabel, 4, 3)
     self.generalGroupBoxLayout.addWidget(self.heightLineEdit, 4, 4)
     self.generalGroupBoxLayout.addWidget(_rollCharacterHeightButton, 4, 5)
+    self.generalGroupBoxLayout.addWidget(_startingWealthSpinBoxLabel, 5, 0)
+    self.generalGroupBoxLayout.addWidget(self.startingWealthSpinBox, 5, 1)
+    self.generalGroupBoxLayout.addWidget(_rollStartingWealthButton, 5, 2)
     self.generalGroupBoxLayout.addWidget(_weightLineEditLabel, 5, 3)
     self.generalGroupBoxLayout.addWidget(self.weightLineEdit, 5, 4)
     self.generalGroupBoxLayout.addWidget(_rollCharacterWeightButton, 5, 5)
-    self.generalGroupBoxLayout.addWidget(_languagesLineEditLabel, 6, 0)
-    self.generalGroupBoxLayout.addWidget(self.languagesLineEdit, 6, 1, 1, 5)
 
     self.generalGroupBoxLayout.setColumnStretch(0, 1)
     self.generalGroupBoxLayout.setColumnStretch(1, 2)
@@ -383,7 +389,6 @@ class CharacterBuildWidget(QWidget):
 
     self.generalGroupBox = QGroupBox()
     self.generalGroupBox.setTitle('General')
-    self.generalGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.generalGroupBox.setLayout(self.generalGroupBoxLayout)
 
     # Abilities group box
@@ -433,7 +438,6 @@ class CharacterBuildWidget(QWidget):
 
     self.abilitiesGroupBox = QGroupBox()
     self.abilitiesGroupBox.setTitle('Abilities')
-    self.abilitiesGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.abilitiesGroupBox.setLayout(self.abilitiesGroupBoxLayout)
 
     # Movement group box
@@ -454,7 +458,6 @@ class CharacterBuildWidget(QWidget):
 
     self.movementGroupBox = QGroupBox()
     self.movementGroupBox.setTitle('Movement')
-    self.movementGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.movementGroupBox.setLayout(self.movementGroupBoxLayout)
 
     # Combat group box
@@ -492,7 +495,6 @@ class CharacterBuildWidget(QWidget):
 
     self.combatGroupBox = QGroupBox()
     self.combatGroupBox.setTitle('Combat')
-    self.combatGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.combatGroupBox.setLayout(self.combatGroupBoxLayout)
 
     # Saving Throw group box
@@ -519,7 +521,6 @@ class CharacterBuildWidget(QWidget):
 
     self.saveGroupBox = QGroupBox()
     self.saveGroupBox.setTitle('Saving Throws')
-    self.saveGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.saveGroupBox.setLayout(self.saveGroupBoxLayout)
 
     # Adventuring Skills group box
@@ -546,7 +547,6 @@ class CharacterBuildWidget(QWidget):
 
     self.adventureSkillsGroupBox = QGroupBox()
     self.adventureSkillsGroupBox.setTitle('Adventuring Skills')
-    self.adventureSkillsGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
     self.adventureSkillsGroupBox.setLayout(self.adventureSkillsGroupBoxLayout)
 
     # Trait scroll area
@@ -558,32 +558,38 @@ class CharacterBuildWidget(QWidget):
     _traitGroupBox.setTitle('Traits')
     _traitGroupBox.setLayout(_traitGroupBoxLayout)
 
-    # Info group box
-    self.infoGroupBoxLayout = QGridLayout()
-    self.infoGroupBoxLayout.setSpacing(20)
-    self.infoGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
-    self.infoGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-    self.infoGroupBoxLayout.addWidget(_literacyLabel, 0, 0)
-    self.infoGroupBoxLayout.addWidget(self.literacyLineEdit, 0, 1)
-    self.infoGroupBoxLayout.addWidget(_spokenLanguagesLabel, 0, 2)
-    self.infoGroupBoxLayout.addWidget(self.spokenLanguagesLineEdit, 0, 3, 1, 2)
+    # Languages group box
+    self.languagesGroupBoxLayout = QGridLayout()
+    self.languagesGroupBoxLayout.setSpacing(20)
+    self.languagesGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.languagesGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    self.languagesGroupBoxLayout.addWidget(_literacyLabel, 0, 0)
+    self.languagesGroupBoxLayout.addWidget(self.literacyLineEdit, 0, 1)
+    self.languagesGroupBoxLayout.addWidget(_spokenLanguagesLabel, 0, 2)
+    self.languagesGroupBoxLayout.addWidget(self.spokenLanguagesLineEdit, 0, 3)
+    self.languagesGroupBoxLayout.addWidget(_languagesLineEditLabel, 1, 0)
+    self.languagesGroupBoxLayout.addWidget(self.languagesLineEdit, 1, 1, 1, 3)
 
-    self.infoGroupBoxLayout.addWidget(_npcReactionsModifierLabel, 1, 0)
-    self.infoGroupBoxLayout.addWidget(self.npcReactionsModifierSpinBox, 1, 1)
-    self.infoGroupBoxLayout.addWidget(_maxNumberOfRetainersLabel, 1, 2)
-    self.infoGroupBoxLayout.addWidget(self.maxNumberOfRetainersSpinBox, 1, 3)
-    self.infoGroupBoxLayout.addWidget(_retainerLoyaltyLabel, 1, 4)
-    self.infoGroupBoxLayout.addWidget(self.retainerLoyaltySpinBox, 1, 5)
+    self.languagesGroupBox = QGroupBox()
+    self.languagesGroupBox.setTitle('Languages')
+    self.languagesGroupBox.setLayout(self.languagesGroupBoxLayout)
 
-    self.infoGroupBoxLayout.setColumnStretch(1, 2)
-    self.infoGroupBoxLayout.setColumnStretch(3, 2)
-    self.infoGroupBoxLayout.setColumnStretch(5, 2)
-    self.infoGroupBoxLayout.setColumnStretch(6, 5)
+    # NPC & Retainers group box
 
-    self.infoGroupBox = QGroupBox()
-    self.infoGroupBox.setTitle('Info')
-    self.infoGroupBox.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
-    self.infoGroupBox.setLayout(self.infoGroupBoxLayout)
+    self.npcGroupBoxLayout = QGridLayout()
+    self.npcGroupBoxLayout.setSpacing(20)
+    self.npcGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.npcGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    self.npcGroupBoxLayout.addWidget(_npcReactionsModifierLabel, 0, 0)
+    self.npcGroupBoxLayout.addWidget(self.npcReactionsModifierSpinBox, 0, 1)
+    self.npcGroupBoxLayout.addWidget(_maxNumberOfRetainersLabel, 1, 0)
+    self.npcGroupBoxLayout.addWidget(self.maxNumberOfRetainersSpinBox, 1, 1)
+    self.npcGroupBoxLayout.addWidget(_retainerLoyaltyLabel, 1, 2)
+    self.npcGroupBoxLayout.addWidget(self.retainerLoyaltySpinBox, 1, 3)
+
+    self.npcGroupBox = QGroupBox()
+    self.npcGroupBox.setTitle('NPCs and Retainers')
+    self.npcGroupBox.setLayout(self.npcGroupBoxLayout)
 
     ## Buttons
 
@@ -603,9 +609,13 @@ class CharacterBuildWidget(QWidget):
     self.deleteFromDatabaseButton = QPushButton("Delete From Database")
     self.deleteFromDatabaseButton.clicked.connect(self.handleDeleteFromDatabaseButton)
 
-    # Save to file
-    self.saveToFileButton = QPushButton("Save To File")
-    self.saveToFileButton.clicked.connect(self.handleSaveToFileButton)
+    # Export to file
+    self.exportToFileButton = QPushButton("Export To File")
+    self.exportToFileButton.clicked.connect(self.handleExportToFileButton)
+
+    # Export to character sheet
+    self.exportToCharacterSheetPdfButton = QPushButton("Export To Character Sheet")
+    self.exportToCharacterSheetPdfButton.clicked.connect(self.handleExportToCharacterSheetPdfButton)
 
     # Clear
     self.clearButton = QPushButton("Clear")
@@ -617,7 +627,8 @@ class CharacterBuildWidget(QWidget):
     _buttonHelperLayout.addWidget(self.loadFromDatabaseButton)
     _buttonHelperLayout.addWidget(self.saveToDatabaseButton)
     _buttonHelperLayout.addWidget(self.deleteFromDatabaseButton)
-    _buttonHelperLayout.addWidget(self.saveToFileButton)
+    _buttonHelperLayout.addWidget(self.exportToFileButton)
+    _buttonHelperLayout.addWidget(self.exportToCharacterSheetPdfButton)
     _buttonHelperLayout.addWidget(self.clearButton)
     _buttonHelperLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum))
 
@@ -648,20 +659,11 @@ class CharacterBuildWidget(QWidget):
     _mainGridLayout.addWidget(self.combatGroupBox, 2, 0)
     _mainGridLayout.addWidget(self.saveGroupBox, 2, 1)
     _mainGridLayout.addWidget(self.adventureSkillsGroupBox, 2, 2)
-    _mainGridLayout.addWidget(self.infoGroupBox, 3, 0, 1, 2)
+    _mainGridLayout.addWidget(self.languagesGroupBox, 3, 0)
+    _mainGridLayout.addWidget(self.npcGroupBox, 3, 1)
     _mainGridLayout.addLayout(_buttonHelperLayout, 4, 0)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum), 4, 4)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.MinimumExpanding), 5, 0)
-
-    _mainGridLayout.setColumnStretch(0, 4)
-    _mainGridLayout.setColumnStretch(1, 3)
-    _mainGridLayout.setColumnStretch(2, 2)
-    _mainGridLayout.setColumnStretch(3, 2)
-    _mainGridLayout.setRowStretch(1, 1)
-    _mainGridLayout.setRowStretch(2, 1)
-    _mainGridLayout.setRowStretch(3, 1)
-    _mainGridLayout.setRowStretch(4, 1)
-    _mainGridLayout.setRowStretch(5, 2)
+    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 4, 3)
+    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 5, 0)
 
     self.setLayout(_mainGridLayout)
     self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
@@ -674,6 +676,47 @@ class CharacterBuildWidget(QWidget):
     self.handleDexteritySpinBoxValueChanged()
     self.handleConstitutionSpinBoxValueChanged()
     self.handleCharismaSpinBoxValueChanged()
+
+  def applyClassModifiers(self):
+    _modifiers = data.getGameSystemData().getClassProperty('ose', self.className, 'character_modifiers')
+    if not _modifiers:
+      return
+
+    for _modifier in _modifiers:
+      _widget = qh.findChildByProperty(self, QWidget, 'name', _modifier['property'])
+      if not _widget:
+        continue
+
+      if (not '+' in _modifier['value'] and
+          not '-' in _modifier['value'] and
+          not '*' in _modifier['value']):
+        if type(_widget) in (QLineEdit, QPlainTextEdit):
+          _widget.setText(_modifier['value'])
+        elif type(_widget) == QSpinBox:
+          _widget.setValue(int(_modifier['value']))
+      else:
+        _operator = ''
+        _currentValue = 0
+        if type(_widget) in (QLineEdit, QPlainTextEdit):
+          _currentValue = int(_widget.text())
+        elif type(_widget) == QSpinBox:
+          _currentValue = _widget.value()
+
+        _value = 0
+        if '+' in _modifier['value']:
+          _value = int(_modifier['value'].split('+')[1])
+          _value = _currentValue + _value
+        elif '-' in _modifier['value']:
+          _value = int(_modifier['value'].split('-')[1])
+          _value = _currentValue - _value
+        elif '*' in _modifier['value']:
+          _value = int(_modifier['value'].split('*')[1])
+          _value = _currentValue * _value
+
+        if type(_widget) in (QLineEdit, QPlainTextEdit):
+          _widget.setText(str(_value))
+        elif type(_widget) == QSpinBox:
+          _widget.setValue(_value)
 
   def calculateAbilityModifier(self, score : int) -> int:
     _mod = 3
@@ -728,17 +771,104 @@ class CharacterBuildWidget(QWidget):
 
     return _chance
 
+  def calculateUnarmoredAc(self):
+    return 9 - self.calculateAbilityModifier(self.dexteritySpinBox.value())
+
   def calculateWisdomMagicSavesModifier(self) -> int:
     return self.wisdomModSpinBox.value()
+
+  def calculateXpBonus(self):
+    _xpBonus = data.getGameSystemData().getClassProperty('ose', self.className, 'prime_requisite_xp_bonus')
+    if not _xpBonus:
+      return
+
+    _minorBonusRequirement = False
+    _majorBonusRequirement = False
+
+    _finalResults = []
+
+    for _bonusLevel in _xpBonus.values():
+      _fulfilledCurrent = False
+      _abilityScores = {}
+
+      for _key in _bonusLevel.keys():
+        if _key == 'condition':
+          continue
+
+        _abilityScore = 0
+        match _key.lower():
+          case 'str':
+            _abilityScore = self.strengthSpinBox.value()
+          case 'int':
+            _abilityScore = self.intelligenceSpinBox.value()
+          case 'wis':
+            _abilityScore = self.wisdomSpinBox.value()
+          case 'dex':
+            _abilityScore = self.dexteritySpinBox.value()
+          case 'con':
+            _abilityScore = self.constitutionSpinBox.value()
+          case 'cha':
+            _abilityScore = self.charismaSpinBox.value()
+          case _:
+            continue
+
+        _abilityScores[_key] = _abilityScore
+
+      _fulfilledTotal = False
+      _lastValue = None
+      _currentValue = None
+      _fulfilledCurrent = False
+      for _score in _abilityScores.keys():
+        _currentValue = _abilityScores[_score]
+        # First xp bonus requirement
+        if _lastValue is None:
+          if _currentValue >= _bonusLevel[_score]:
+            _fulfilledTotal = True
+          _lastValue = _currentValue
+          continue
+        else:
+          # Further xp bonus requirement
+          if _currentValue >= _bonusLevel[_score]:
+            _fulfilledCurrent = True
+
+        _condition = _bonusLevel.get('condition', None)
+
+        if _condition == 'and':
+          _fulfilledTotal =  _fulfilledCurrent and _fulfilledTotal
+        elif _condition == 'or':
+          _fulfilledTotal =  _fulfilledCurrent or _fulfilledTotal
+
+        _lastValue = _currentValue
+
+      _finalResults.append(_fulfilledTotal)
+
+    _xpBonusValues = list(_xpBonus.keys())
+    _finalBonus = ''
+    for i in range(len(_finalResults)):
+      if _finalResults[i]:
+        _finalBonus = _xpBonusValues[i]
+
+    self.xpBonusLineEdit.setText(_finalBonus)
 
   def getRaceFromClass(self) -> str | None:
     if not self.className:
       return None
 
-    if self.className in ('Elf', 'Dwarf'):
+    if self.className in ('Elf', 'Dwarf', 'Halfling'):
       return self.className
 
     return 'Human'
+
+  def getValueFromWidget(self, widget) -> int | str | None:
+    if type(widget) in (QLineEdit, QPlainTextEdit):
+      return widget.text()
+    elif type(widget) == QSpinBox:
+      return widget.value()
+    elif type(widget) == QComboBox:
+      return widget.currentText()
+
+    return None
+
 
   def handleCharismaSpinBoxValueChanged(self):
     _charismaScore = self.charismaSpinBox.value()
@@ -786,81 +916,28 @@ class CharacterBuildWidget(QWidget):
 
   def handleClassComboBoxChanged(self):
     # Gather class data
+    if not self.classComboBox.currentText():
+      return
+
     self.className = self.classComboBox.currentText()
 
-    _classId = dm.manager().getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumn='Name', filterValue=self.className)
-    _classHasPropertiesInDb = db.query('select * from CLASS_X_CLASS_PROPERTY where CLASS = ?', (_classId,))
+    _classData = data.getGameSystemData().getClass(gameSystem='ose', className=self.className)
 
-    if not _classHasPropertiesInDb and self.classComboBox.currentIndex() != -1:
-      logging.error(f'No data found in database for class: {self.classComboBox.currentText()}')
+    if _classData is None and self.classComboBox.currentIndex() != -1:
+      logging.error(f'No data found for class "{self.classComboBox.currentText()}" for game system ose')
+      self.className = None
       return
 
-    _sqlStatement = '''
-      select cl.NAME as CLASS_NAME, cp.NAME as PROPERTY_NAME, cp.ID as PROPERTY_ID, cp.PARENT, ccp.ORDER_1, ccp.ORDER_2, ccp.VALUE
-      from CLASS cl
-        left join CLASS_PROPERTY cp on cl.GAME_SYSTEM = cp.GAME_SYSTEM
-        left join CLASS_X_CLASS_PROPERTY ccp on cp.ID = ccp.PROPERTY and cl.ID = ccp.CLASS
-      where
-        cl.ID = ?
-      order by
-        cp.ID, ccp.ORDER_1, ccp.ORDER_2
-    '''
-    _classDataRaw = db.query(_sqlStatement, (_classId,))
+    self.classData = _classData
 
-    if not _classDataRaw:
-      return
-
-    # Map major class properties to their values and put in dict with ID as key
-    _classDataMajorProperties = [_e for _e in _classDataRaw if _e['PARENT'] == '']
-
-    self.classData = {}
-    for _entry in _classDataMajorProperties:
-      self.classData[_entry['PROPERTY_NAME']] = {'ID': _entry['PROPERTY_ID'], 'VALUE': _entry['VALUE']}
-
-    # Map subproperties to their parents and store them as lists
-    # Makes it possible to store properties that are not simple text but lists, dictionaries, etc.
-    _classDataSubProperties = [_e for _e in _classDataRaw if _e['PARENT'] != '']
-    _classDataSubProperties.sort(key=lambda _e: (_e['PARENT'] if _e['PARENT'] else 0, _e['ORDER_1'] if _e['ORDER_1'] else 0, _e['ORDER_2'] if _e['ORDER_2'] else 0))
-
-    _lastOrder = 1
-    _lastParent = -1
-    _subList = []
-    _dict = {}
-    for _entry in _classDataSubProperties:
-      _propertyParent = _entry['PARENT']
-
-      if _lastParent != _propertyParent:
-        if _subList:
-          _subList.append(_dict)
-          _parentName = next((_e['PROPERTY_NAME'] for _e in _classDataMajorProperties if _e['PROPERTY_ID'] == _lastParent), None)
-          self.classData[_parentName]['VALUE'] = _subList
-          _dict = {}
-
-        _lastParent = _propertyParent
-        _subList = []
-
-      if _lastOrder != _entry['ORDER_1']:
-        _lastOrder = _entry['ORDER_1']
-        # Necessary for the iteration when the parent changed
-        if _dict:
-          _subList.append(_dict)
-        _dict = {}
-
-      _dict[_entry['PROPERTY_NAME']] = _entry['VALUE']
-
-    # Add last list to result dict
-    if _subList:
-      if _dict:
-        _subList.append(_dict)
-      _parentName = next((_e['PROPERTY_NAME'] for _e in _classDataMajorProperties if _e['PROPERTY_ID'] == _lastParent), None)
-      self.classData[_parentName]['VALUE'] = _subList
-
-    self.traitScrollArea.addTraitsFromJson(self.classData['traits']['VALUE'])
+    self.traitScrollArea.addTraitsFromJson(self.classData['traits'])
     self.updateUiWithClassData()
 
   def handleClearButton(self):
+    self.classComboBox.setCurrentIndex(-1)
     self.nameLineEdit.clear()
     self.xpLineEdit.clear()
+    self.xpBonusLineEdit.setText('None')
     self.startingWealthSpinBox.setValue(self.startingWealthSpinBox.minimum())
     self.languagesLineEdit.clear()
     self.titleLineEdit.clear()
@@ -889,13 +966,14 @@ class CharacterBuildWidget(QWidget):
     self.findSecretDoorSkillSpinBox.setValue(self.findSecretDoorSkillSpinBox.minimum())
 
     self.initiativeBonusSpinBox.setValue(0)
+    self.hdSpinBoxLabel.setText('HD:')
 
   def handleConstitutionSpinBoxValueChanged(self):
     _constitutionScore = self.constitutionSpinBox.value()
     self.constitutionModSpinBox.setValue(self.calculateAbilityModifier(_constitutionScore))
 
   def handleDeleteFromDatabaseButton(self):
-    _characterId = dm.manager().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumn='Name', filterValue=self.nameLineEdit.text())
+    _characterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('Name',), filterValues=(self.nameLineEdit.text(),))
     if not _characterId:
       logging.warning(f'The character "{self.nameLineEdit.text()}" cannot be found in the database.')
       return
@@ -922,9 +1000,8 @@ class CharacterBuildWidget(QWidget):
 
       if _sqlRc == 0:
         logging.info(f'Character "{self.nameLineEdit.text()}" was successfully deleted from the database.')
-        dm.manager().model('CHARACTER').select()
-        dm.manager().model('CHARACTER_X_CHARACTER_PROPERTY').select()
-
+        dm.getDataModels().model('CHARACTER').select()
+        dm.getDataModels().model('CHARACTER_X_CHARACTER_PROPERTY').select()
 
   def handleDexterityModSpinBoxValueChanged(self):
     self.updateAC()
@@ -934,6 +1011,174 @@ class CharacterBuildWidget(QWidget):
     _dexScore = self.dexteritySpinBox.value()
     self.dexterityModSpinBox.setValue(self.calculateAbilityModifier(_dexScore))
     self.initiativeBonusSpinBox.setValue(self.calculateInitiativeModifier())
+
+  def handleExportToCharacterSheetPdfButton(self):
+    _fileNames = hp.makeFileDialog(acceptedFileExtensions='pdf files (*.pdf)', multipleFiles=False, acceptMode=QFileDialog.AcceptMode.AcceptSave)
+    if not _fileNames:
+      logging.error('No file selected for export')
+      return
+
+    _filePath = pathlib.Path(_fileNames[0])
+    _extLower = _filePath.suffix.replace('.', '').lower()
+    if _extLower != 'pdf':
+      logging.error(f'Invalid file extension "{_extLower}" selected for export')
+      return
+
+    _characterData = self.serializeCharacterToDict()
+
+    _levelProgression = self.classData.get('level_progression').get('rows')
+    _levelNormalized = self.levelSpinBox.value() - 1
+    _thac0 = int(_levelProgression[_levelNormalized]['thac0'].split(' ')[0])
+
+
+
+
+
+    _characterDataToPdfMapping = {
+      # General
+      'Name': _characterData['name'],
+      'Title': '',
+      'Race': _characterData['race'],
+      'Level': _characterData['level'],
+      'Class': _characterData['class'],
+      'Alignment': _characterData['alignment'],
+
+      # Ability Scores
+      'STR': _characterData['strength_score'],
+      'INT': _characterData['intelligence_score'],
+      'WIS': _characterData['wisdom_score'],
+      'DEX': _characterData['dexterity_score'],
+      'CON': _characterData['constitution_score'],
+      'CHA': _characterData['charisma_score'],
+
+      # Saving Throws
+      'Death Save': _characterData['save_d'],
+      'Wands Save': _characterData['save_w'],
+      'Paralysis Save': _characterData['save_p'],
+      'Breath Save': _characterData['save_b'],
+      'Spells Save': _characterData['save_s'],
+      'Magic Save Mod': self.calculateAbilityModifier(_characterData['wisdom_score']),
+
+      # Combat
+      'HP': _characterData['hit_points'],
+      'Max HP': _characterData['hit_points'],
+      'CON HP Mod': self.calculateAbilityModifier(_characterData['constitution_score']),
+
+      'AC': _characterData['ac'],
+      'Unarmoured AC': self.calculateUnarmoredAc(),
+      'DEX AC Mod': self.calculateAbilityModifier(_characterData['dexterity_score']),
+
+      # Attack Rolls
+      'STR Melee Mod': self.calculateAbilityModifier(_characterData['strength_score']),
+      'DEX Missile Mod': self.calculateAbilityModifier(_characterData['dexterity_score']),
+      'Attack Bonus': '',
+      'THAC0': _thac0,
+      'THAC1': _thac0 - 1,
+      'THAC2': _thac0 - 2,
+      'THAC3': _thac0 - 3,
+      'THAC4': _thac0 - 4,
+      'THAC5': _thac0 - 5,
+      'THAC6': _thac0 - 6,
+      'THAC7': _thac0 - 7,
+      'THAC8': _thac0 - 8,
+      'THAC9': _thac0 - 9,
+
+      # Encounters
+      'Reactions CHA Mod': self.npcReactionsModifierSpinBox.value(),
+      'Initiative DEX Mod': '',
+
+      # Movement
+      'Overland Movement': _characterData['movement_overland'],
+      'Exporation Movement': _characterData['movement_overland'],
+      'Encounter Movement': _characterData['movement_overland'],
+
+      # Adventuring Skills
+      'Forage': _characterData['skill_forage'],
+      'Find Room Trap': _characterData['skill_find_room_trap'],
+      'Hunt': _characterData['skill_hunt'],
+      'Listen at Door': _characterData['skill_listen_door'],
+      'Open Stuck Door': _characterData['skill_open_stuck_door'],
+      'Find Secret Door': _characterData['skill_find_secret_door'],
+
+      # Abilities, Skills, Weapons
+      'Abilities, Skills, Weapons': '',
+      # Languages
+      'Languages': _characterData['languages'],
+      'Literacy': '/Yes',
+      # Equipment
+      'Equipment': '',
+      # Weapons and Armour
+      'Weapons and Armour': '',
+      # Magic Items
+      'Magic Items': '',
+      # Treasure
+      'Treasure': '',
+      # Other Notes
+      'Notes': '',
+
+      # Coins
+      'PP': '',
+      'GP': _characterData['starting_wealth'],
+      'EP': '',
+      'SP': '',
+      'CP': '',
+
+      # XP
+      'XP': _characterData['xp'],
+      'XP for Next Level': _levelProgression[_levelNormalized + 1]['xp'],
+      'PR XP Bonus': self.xpBonusLineEdit.text(),
+      
+      # Encumbrance
+      'Treasure Encumbrance': '',
+      'Equipment Encumbrance': '',
+      'Total Encumbrance': ''
+    }
+
+
+
+    _pdfReader = PdfReader(apc.ROOT_INPUT_PATH / 'rules' / 'ose' / 'character_sheet.pdf')
+    _fields = _pdfReader.get_fields()
+
+    _pdfWriter = PdfWriter()
+    _pdfWriter.append(_pdfReader)
+
+    for _key in _characterDataToPdfMapping:
+      _pageNumber = _pdfReader.get_pages_showing_field(_fields[_key])[0].page_number
+      _pdfWriter.update_page_form_field_values(_pdfWriter.pages[_pageNumber], {f'{_key}': _characterDataToPdfMapping[_key]}, auto_regenerate=False) #, flatten=True)
+      #_pdfWriter.remove_annotations(subtypes='/Widget')
+
+    _pdfWriter.write(_filePath)
+
+  def handleExportToFileButton(self):
+    _fileDialogNameFilter = [
+      "All Supported Files (*.yaml *.yml *.json *.csv)",
+      "yaml files (*.yaml *.yml)",
+      "json files (*.json)",
+      "csv files (*.csv)",
+      "All files (*)"
+    ]
+    _fileNames = hp.makeFileDialog(acceptedFileExtensions=_fileDialogNameFilter, multipleFiles=False, acceptMode=QFileDialog.AcceptMode.AcceptSave)
+    if not _fileNames:
+      logging.error('No file selected for export')
+      return
+
+    _filePath = pathlib.Path(_fileNames[0])
+    _extLower = _filePath.suffix.replace('.', '').lower()
+    _characterData = self.serializeCharacterToDict()
+
+    if not _characterData:
+      logging.error('Character data could not be exported!')
+      return
+
+    if _extLower == 'csv':
+      hp.writeDictToCsv(_characterData, _filePath, ';')
+    elif _extLower == 'json':
+      hp.writeDictToJson(_characterData, _filePath)
+    elif _extLower == 'yaml':
+      hp.writeDictToYaml(_characterData, _filePath)
+    else:
+      logging.error(f'Unsupported file extension "{_extLower}" for export')
+
 
   def handleGenerateAllAbilityScoresButton(self):
     self.handleRollAbilityScoreButtonClicked('STR')
@@ -945,10 +1190,18 @@ class CharacterBuildWidget(QWidget):
 
   def handleGenerateRandomCharacterButton(self):
     # Name
+    if not self.className:
+      _classes = [_c.get('name', None) for _c in data.getGameSystemData().getAllClassesForGameSystem('ose').values()]
+      self.className = choice(_classes)
+      self.classComboBox.setCurrentText(self.className)
+      logging.info(f'Rolled class "{self.className}"')
+
     _race = self.getRaceFromClass()
-    _raceId = dm.manager().getDataForModelIndex(modelName='RACE', columnName='ID', filterColumn='NAME', filterValue=_race)
-    _firstNames = dm.manager().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
-    _lastNames = dm.manager().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
+    logging.info(f'Determined race "{_race}"')
+
+    _raceId = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='ID', filterColumns=('NAME',), filterValues=(_race,))
+    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
+    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
 
     _fullNames = []
     for i in range(len(_firstNames)):
@@ -957,6 +1210,7 @@ class CharacterBuildWidget(QWidget):
     _name = choice(_fullNames) if len(_fullNames) > 0 else choice(['John Doe', 'Jane Doe'])
 
     self.nameLineEdit.setText(_name)
+    logging.info(f'Rolled name "{_name}"')
 
     # Age
     _ageScore = hp.rollDice(3, 20)
@@ -966,41 +1220,70 @@ class CharacterBuildWidget(QWidget):
     _reRollThreshold = 5
     _strengthScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.strengthSpinBox.setValue(_strengthScore)
+    logging.info(f'Rolled {_strengthScore} for Strength')
     _intelligenceScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.intelligenceSpinBox.setValue(_intelligenceScore)
+    logging.info(f'Rolled {_intelligenceScore} for Intelligence')
     _wisdomScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.wisdomSpinBox.setValue(_wisdomScore)
+    logging.info(f'Rolled {_wisdomScore} for Wisdom')
     _dexterityScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.dexteritySpinBox.setValue(_dexterityScore)
+    logging.info(f'Rolled {_dexterityScore} for Dexterity')
     _constitutionScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.constitutionSpinBox.setValue(_constitutionScore)
+    logging.info(f'Rolled {_constitutionScore} for Constitution')
     _charismaScore = hp.rollAbilityScore(mode='3d6DownTheLine', rerollThreshold=_reRollThreshold)
     self.charismaSpinBox.setValue(_charismaScore)
+    logging.info(f'Rolled {_charismaScore} for Charisma')
 
     # Ability Score modifiers
-    self.strengthModSpinBox.setValue(self.calculateAbilityModifier(_strengthScore))
-    self.wisdomModSpinBox.setValue(self.calculateAbilityModifier(_wisdomScore))
-    self.constitutionModSpinBox.setValue(self.calculateAbilityModifier(_constitutionScore))
-    self.dexterityModSpinBox.setValue(self.calculateAbilityModifier(_dexterityScore))
+    _mod = self.calculateAbilityModifier(_strengthScore)
+    self.strengthModSpinBox.setValue(_mod)
+    logging.info(f'Determined {_mod} for Strength modifier')
 
-    # Starting wealth
-    self.handleRollStartingWealthButton()
+    _mod = self.calculateAbilityModifier(_wisdomScore)
+    self.wisdomModSpinBox.setValue(_mod)
+    logging.info(f'Determined {_mod} for Wisdom modifier')
 
-    # AC
-    self.updateAC()
+    _mod = self.calculateAbilityModifier(_constitutionScore)
+    self.constitutionModSpinBox.setValue(_mod)
+    logging.info(f'Determined {_mod} for Constitution modifier')
 
-    # Weight
-    self.handleRollCharacterWeightButton()
-
-    # Height
-    self.handleRollCharacterHeightButton()
+    _mod = self.calculateAbilityModifier(_dexterityScore)
+    self.dexterityModSpinBox.setValue(_mod)
+    logging.info(f'Determined {_mod} for Dexterity modifier')
 
     # HP
     self.handleRollHpButtonClicked()
 
+    # AC
+    self.updateAC()
+    logging.info(f'Determined AC of {self.acSpinBox.value()}')
+    logging.info(f'Determined AC bonus of {self.acBonusLabel.text()}')
+
+    # Weight
+    self.handleRollCharacterWeightButton()
+    logging.info(f'Rolled weight of {self.weightLineEdit.text()} lbs')
+
+    # Height
+    self.handleRollCharacterHeightButton()
+    logging.info(f'Rolled height of {self.heightLineEdit.text()}')
+
+    # Starting wealth
+    self.handleRollStartingWealthButton()
+    logging.info(f'Rolled starting wealth of {self.startingWealthSpinBox.value()} gp')
+
     # Languages
-    if self.className:
-      self.languagesLineEdit.setText(self.classData['languages']['VALUE'])
+    self.languagesLineEdit.setText(self.classData.get('languages', ''))
+    logging.info(f'Determined languages "{self.languagesLineEdit.text()}"')
+
+    # Apply class modifiers
+    self.applyClassModifiers()
+
+    # XP bonus
+    self.calculateXpBonus()
+    logging.info(f'Determined XP bonus of {self.xpBonusLineEdit.text()}')
 
   def handleHdSpinBoxValueChanged(self):
     if not self.classData:
@@ -1088,25 +1371,25 @@ class CharacterBuildWidget(QWidget):
         pass
 
   def handleRollCharacterAgeButton(self):
-    _race = self.getRaceFromClass()
-    if not _race:
+    if not self.className or not self.getRaceFromClass():
+      logging.error('Rolling for a character\'s age requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character age.')
       return
 
-    _ageMin = dm.manager().getDataForModelIndex(modelName='RACE', columnName='AGE_MIN', filterColumn='NAME', filterValue=_race)
-    _ageMax = dm.manager().getDataForModelIndex(modelName='RACE', columnName='AGE_MAX', filterColumn='NAME', filterValue=_race)
+    _race = self.getRaceFromClass()
+
+    _ageMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='AGE_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _ageMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='AGE_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _age = choice(range(_ageMin, _ageMax + 1))
     self.ageSpinBox.setValue(_age)
 
   def handleRollCharacterNameButton(self) -> str | None:
     if not self.className or not self.getRaceFromClass():
-      logging.error('Rolling for a character name requires a class to be selected! Any class except "Dwarf" and "Elf" are considered to be human when generating a character name.')
+      logging.error('Rolling for a character\'s name requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating a character name.')
       return
 
-    _raceId = dm.manager().getDataForModelIndex(modelName='RACE', columnName='ID', filterColumn='NAME', filterValue=self.getRaceFromClass())
-
-    _firstNames = dm.manager().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
-    _lastNames = dm.manager().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
+    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
+    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
 
     _firstName = choice(_firstNames) if len(_firstNames) > 0 else 'John'
     _lastName = choice(_lastNames) if len(_lastNames) > 0 else 'Doe'
@@ -1114,13 +1397,15 @@ class CharacterBuildWidget(QWidget):
     self.nameLineEdit.setText(f'{_firstName} {_lastName}')
 
   def handleRollCharacterHeightButton(self):
-    _race = self.getRaceFromClass()
-    if not _race:
+    if not self.className or not self.getRaceFromClass():
+      logging.error('Rolling for a character\'s height requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character height.')
       return
 
+    _race = self.getRaceFromClass()
+
     # Stored in kilogram
-    _heightMin = dm.manager().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MIN', filterColumn='NAME', filterValue=_race)
-    _heightMax = dm.manager().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MAX', filterColumn='NAME', filterValue=_race)
+    _heightMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _heightMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _height = choice(range(_heightMin, _heightMax + 1))
 
@@ -1132,13 +1417,15 @@ class CharacterBuildWidget(QWidget):
     self.heightLineEdit.setText(f'{_feet}\' {_inches}\"')
 
   def handleRollCharacterWeightButton(self):
-    _race = self.getRaceFromClass()
-    if not _race:
+    if not self.className or not self.getRaceFromClass():
+      logging.error('Rolling for a character\'s weight requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character weight.')
       return
 
+    _race = self.getRaceFromClass()
+
     # Stored in centimeter
-    _weightMin = dm.manager().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MIN', filterColumn='NAME', filterValue=_race)
-    _weightMax = dm.manager().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MAX', filterColumn='NAME', filterValue=_race)
+    _weightMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _weightMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _weight = choice(range(_weightMin, _weightMax + 1))
 
@@ -1158,19 +1445,19 @@ class CharacterBuildWidget(QWidget):
 
     #ToDo: Move out of here to a more central place, maybe write subroutines?
     ## Determine the difference in hp bonus per level above level 9
-    # Get level progression for the selected class
-    _classId = dm.manager().getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumn='NAME', filterValue=self.className)
-    _classData = db.query('select * from CLASS_X_CLASS_PROPERTY where CLASS = ?', (_classId,))
-    _hdPropertyId = db.query('select ID from CLASS_PROPERTY where NAME = ? and GAME_SYSTEM = ?', ('hd', _oseGameSystemId), one=True)['ID']
-    _hdLevelProgressionProperties = db.query('select VALUE from CLASS_X_CLASS_PROPERTY where CLASS = ? and PROPERTY = ?', (_classId, _hdPropertyId))
+    _hdProgression = [_r['hd'] for _r in self.classData.get('level_progression').get('rows')]
 
     # Extract the bonus from the first two levels above level 9 and calculate the difference
-    _level10HpBonus = int(_hdLevelProgressionProperties[9]['VALUE'].replace('*', '').split('+')[1])
-    _level11HpBonus = int(_hdLevelProgressionProperties[10]['VALUE'].replace('*', '').split('+')[1])
-    _hpBonusDifference = _level11HpBonus - _level10HpBonus
+    _hpBonusDifference = 0
+    if len(_hdProgression) == 10:
+      _hpBonusDifference = int(_hdProgression[9].replace('*', '').split('+')[1])
+    if len(_hdProgression) > 10:
+      _level10HpBonus = int(_hdProgression[9].replace('*', '').split('+')[1])
+      _level11HpBonus = int(_hdProgression[10].replace('*', '').split('+')[1])
+      _hpBonusDifference = _level11HpBonus - _level10HpBonus
 
     _numHitDice = self.hdSpinBox.value()
-    _hitDice = int(self.classData['hit_dice']['VALUE'].split('d')[1])
+    _hitDice = int(self.classData['hit_dice'].split('d')[1])
     _constitutionHpModifier = self.calculateHpModifier()
 
     # Roll config
@@ -1202,7 +1489,15 @@ class CharacterBuildWidget(QWidget):
     logging.info(f'Rolled {_sum} hit points in total.')
 
   def handleRollLevelButton(self):
-    self.levelSpinBox.setValue(choice(range(1, 101)))
+    if not self.className:
+      logging.error('Rolling a character\'s level requires a class to be selected!')
+      return
+
+    _maxLevel = data.getGameSystemData().getClassProperty('ose', self.className, 'maximum_level')
+    if not _maxLevel:
+      _maxLevel = 100
+
+    self.levelSpinBox.setValue(choice(range(1, _maxLevel + 1)))
 
   def handleRollStartingWealthButton(self):
     _startingWealth = hp.rollDice(3, 6) * 10
@@ -1210,14 +1505,14 @@ class CharacterBuildWidget(QWidget):
 
   def handleSaveToDatabaseButton(self):
     # ToDo: Make dynamic when other game systems are implemented
-    _oseGameSystemId = 1
 
     _characterName = self.nameLineEdit.text()
     if not _characterName:
       logging.error('Character name is required in order to save to the database!')
       return
+
     # Check if character already exists
-    _characterId = dm.manager().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumn='NAME', filterValue=_characterName)
+    _characterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
 
     db.beginTransaction()
     _sqlRc = 0
@@ -1237,13 +1532,12 @@ class CharacterBuildWidget(QWidget):
         _sqlRc = max(db.delete('delete from CHARACTER where ID = ?', (_characterId,)), _sqlRc)
 
     # Retrieve character properties
-    _characterProperties = dm.manager().getDataForModelColumn(modelName='CHARACTER_PROPERTY', columnName='NAME', filterColumn='GAME_SYSTEM', filterValue=_oseGameSystemId)
+    _characterProperties = [_k for _k in data.getGameSystemData().getCharacterDefinition().keys()]
 
     # Collect general data from UI
     _characterAge = self.ageSpinBox.value()
     _characterHeight = hp.coalesce(self.heightLineEdit.text())
     _characterWeight = int(hp.coalesce(self.weightLineEdit.text())) if hp.coalesce(self.weightLineEdit.text()) else None
-    _characterSex = self.sexComboBox.currentText()[:1]
 
     # Collect character property data from UI
     _characterData = {}
@@ -1258,24 +1552,25 @@ class CharacterBuildWidget(QWidget):
           _characterData[_property] = _widget.currentText()
 
     # Adjust some values
-    if _characterData['class']:
-      _characterData['class'] = dm.manager().getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumn='NAME', filterValue=_characterData['class'])
+    _characterData['sex'] = _characterData['sex'][:1]
 
     # Insert general character data
     _columns = 'GAME_SYSTEM, NAME, SEX, AGE, HEIGHT, WEIGHT'
-    _args = (_oseGameSystemId, _characterName, _characterSex, _characterAge, _characterHeight, _characterWeight)
+    _args = ('ose', _characterData['name'], _characterData['sex'], int(_characterData['age']), _characterData['height'], int(_characterData['weight']))
     _sqlRc = max(db.insert(f'insert into CHARACTER({_columns}) values(?, ?, ?, ?, ?, ?)', _args), _sqlRc)
     _newCharacterId = -1
     if _sqlRc == 0:
       # Refresh model to retrieve new character id
-      dm.manager().model('CHARACTER').select()
-      _newCharacterId = dm.manager().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumn='NAME', filterValue=_characterName)
+      dm.getDataModels().model('CHARACTER').select()
+      _newCharacterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
 
     # Insert game system-specific data
     _columns = 'CHARACTER, PROPERTY, VALUE'
     for _entry in _characterData.keys():
-      _propertyId = dm.manager().getDataForModelIndex(modelName='CHARACTER_PROPERTY', columnName='ID', filterColumn='NAME', filterValue=_entry)
-      _args = (_newCharacterId, _propertyId, _characterData[_entry])
+      if _entry in ('name', 'sex', 'age', 'height', 'weight'):
+        continue
+      _value = _characterData[_entry]
+      _args = (_newCharacterId, _entry, _value)
       _sqlRc = max(db.insert(f'insert into CHARACTER_X_CHARACTER_PROPERTY({_columns}) values(?, ?, ?)', _args), _sqlRc)
 
       if _sqlRc != 0:
@@ -1283,27 +1578,11 @@ class CharacterBuildWidget(QWidget):
 
     if _sqlRc == 0:
       db.endTransaction()
-      dm.manager().model('CHARACTER').select()
-      dm.manager().model('CHARACTER_X_CHARACTER_PROPERTY').select()
+      dm.getDataModels().model('CHARACTER').select()
+      dm.getDataModels().model('CHARACTER_X_CHARACTER_PROPERTY').select()
       logging.info(f'Character "{_characterName}" was successfully saved to database.')
     else:
       db.rollbackChanges()
-
-    pass
-
-  def handleSaveToFileButton(self):
-    _fileDialog = QFileDialog()
-    _fileDialog.setNameFilter('*.txt')
-    _fileDialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
-    _filename = []
-
-    _filePath = ''
-    if _fileDialog.exec_():
-      _filename = _fileDialog.selectedFiles()
-      _filePath = _filename[0]
-      _fileExtension = '.txt'
-      _lastChars = _filePath[len(_filePath) - len(_fileExtension) : len(_filePath)]
-      _filePath += _fileExtension if _lastChars != _fileExtension else ''
 
   def handleStrengthModSpinBoxValueChanged(self):
     self.meleeBonusSpinBox.setValue(self.strengthModSpinBox.value())
@@ -1320,19 +1599,8 @@ class CharacterBuildWidget(QWidget):
 
   def loadCharacterFromDatabase(self, characterId : int):
     # ToDo: make dynamic when other game systems are implemented
-    _oseGameSystemId = 1
-
-    _generalCharacterData = dm.manager().getDataForModelColumns(modelName='CHARACTER', columns = ['NAME', 'AGE', 'SEX', 'HEIGHT', 'WEIGHT'], filterColumn='ID', filterValue=characterId)
-    _systemSpecificCharacterData = dm.manager().getDataForModelColumns(modelName='CHARACTER_X_CHARACTER_PROPERTY', columns = ['PROPERTY', 'VALUE'], filterColumn='CHARACTER', filterValue=characterId)
-    _characterProperties = dm.manager().getDataForModelColumns(modelName='CHARACTER_PROPERTY', columns = ['ID', 'NAME'], filterColumn='GAME_SYSTEM', filterValue=_oseGameSystemId)
-
-
-    # Map property ids to their names
-    for _entry in _systemSpecificCharacterData:
-      _entry['PROPERTY_NAME'] = next((_property['NAME'] for _property in _characterProperties if _property['ID'] == _entry['PROPERTY']), None)
-      if _entry['PROPERTY_NAME'] == 'class':
-        _entry['VALUE'] = dm.manager().getDataForModelIndex(modelName='CLASS', columnName='NAME', filterColumn='ID', filterValue=int(_entry['VALUE']))
-
+    _generalCharacterData = dm.getDataModels().getDataForModelColumns(modelName='CHARACTER', columns = ['NAME', 'AGE', 'SEX', 'HEIGHT', 'WEIGHT'], filterColumn='ID', filterValue=characterId)
+    _systemSpecificCharacterData = dm.getDataModels().getDataForModelColumns(modelName='CHARACTER_X_CHARACTER_PROPERTY', columns = ['PROPERTY', 'VALUE'], filterColumn='CHARACTER', filterValue=characterId)
 
     for _key in _generalCharacterData.keys():
       _widget = qh.findChildByProperty(self, QWidget, 'name', _key.lower())
@@ -1345,7 +1613,7 @@ class CharacterBuildWidget(QWidget):
           _widget.setCurrentText(_generalCharacterData[_key])
 
     for _entry in _systemSpecificCharacterData:
-      _widget = qh.findChildByProperty(self, QWidget, 'name', _entry['PROPERTY_NAME'].lower())
+      _widget = qh.findChildByProperty(self, QWidget, 'name', _entry['PROPERTY'].lower())
       if _widget:
         if type(_widget) == QLineEdit:
           _widget.setText(str(_entry['VALUE']))
@@ -1353,9 +1621,6 @@ class CharacterBuildWidget(QWidget):
           _widget.setValue(int(_entry['VALUE']) if _entry['VALUE'] else 0)
         elif type(_widget) == QComboBox:
           _widget.setCurrentText(_entry['VALUE'])
-
-
-    pass
 
 
   def makeRollToolButtonForProperty(self, toolTip : str, targetFunction : Callable) -> QToolButton:
@@ -1391,11 +1656,62 @@ class CharacterBuildWidget(QWidget):
     self.constitutionSpinBox.setValue(_defaultScore)
     self.charismaSpinBox.setValue(_defaultScore)
 
+  def serializeCharacterToDict(self):
+    _characterDefinition = data.getGameSystemData().getCharacterDefinition()
+    # Audit character definition vs. UI
+    for _key in _characterDefinition.keys():
+      _widget = qh.findChildByProperty(self, QWidget, 'name', _key)
+
+      if not _widget:
+        logging.error(f'No widget found for property {_key}')
+        continue
+
+    _characterDefinition['name'] = hp.coalesce(self.nameLineEdit.text(), '')
+    _characterDefinition['class'] = hp.coalesce(self.className, '')
+    _characterDefinition['race'] = hp.coalesce(self.getRaceFromClass(), '')
+    _characterDefinition['sex'] = hp.coalesce(self.sexComboBox.currentText(), '')
+    _characterDefinition['age'] = hp.coalesce(self.ageSpinBox.value(), '')
+    _characterDefinition['height'] = hp.coalesce(self.heightLineEdit.text(), '')
+    _characterDefinition['weight'] = hp.coalesce(f'{self.weightLineEdit.text()} lbs', '')
+    _characterDefinition['alignment'] = hp.coalesce(self.alignmentComboBox.currentText(), '')
+    _characterDefinition['level'] = int(hp.coalesce(self.levelSpinBox.value(), 0))
+    _characterDefinition['xp'] = int(hp.coalesce(self.xpLineEdit.text(), 0))
+    #_characterDefinition['infravision'] = hp.coalesce(self.infravisionLineEdit.text(), 0)
+    _characterDefinition['starting_wealth'] = hp.coalesce(self.startingWealthSpinBox.value(), 0)
+    _characterDefinition['languages'] = hp.coalesce(self.languagesLineEdit.text(), '')
+    _characterDefinition['strength_score'] = hp.coalesce(int(self.strengthSpinBox.value()), 0)
+    _characterDefinition['dexterity_score'] = hp.coalesce(int(self.dexteritySpinBox.value()), 0)
+    _characterDefinition['intelligence_score'] = hp.coalesce(int(self.intelligenceSpinBox.value()), 0)
+    _characterDefinition['wisdom_score'] = hp.coalesce(int(self.wisdomSpinBox.value()), 0)
+    _characterDefinition['constitution_score'] = hp.coalesce(int(self.constitutionSpinBox.value()), 0)
+    _characterDefinition['charisma_score'] = hp.coalesce(int(self.charismaSpinBox.value()), 0)
+    _characterDefinition['movement_exploration'] = hp.coalesce(int(self.movementExplorationLineEdit.text()), 0)
+    _characterDefinition['movement_encounter'] = hp.coalesce(int(self.movementEncounterLabel.text()), 0)
+    _characterDefinition['movement_overland'] = hp.coalesce(int(self.movementOverlandLabel.text()), 0)
+    _characterDefinition['hit_dice'] = self.classData.get('hit_dice', '')
+    _characterDefinition['hit_points'] = hp.coalesce(int(self.hpLineEdit.text()), 0)
+    _characterDefinition['thac0'] = hp.coalesce(self.thac0SpinBox.value(), 0)
+    _characterDefinition['ac'] = hp.coalesce(self.acSpinBox.value(), 0)
+    _characterDefinition['save_d'] = hp.coalesce(self.savePoisonDeathSpinBox.value(), 0)
+    _characterDefinition['save_w'] = hp.coalesce(self.saveMagicWandsSpinBox.value(), 0)
+    _characterDefinition['save_p'] = hp.coalesce(self.saveParalysisPetrificationSpinBox.value(), 0)
+    _characterDefinition['save_b'] = hp.coalesce(self.saveBreathAttacksSpinBox.value(), 0)
+    _characterDefinition['save_s'] = hp.coalesce(self.saveSpellsRodsStavesSpinBox.value(), 0)
+    _characterDefinition['skill_forage'] = hp.coalesce(int(self.foragingSkillSpinBox.value()), 1)
+    _characterDefinition['skill_find_room_trap'] = hp.coalesce(int(self.findRoomTrapSkillSpinBox.value()), 1)
+    _characterDefinition['skill_listen_door'] = hp.coalesce(int(self.listenAtDoorSkillSpinBox.value()), 1)
+    _characterDefinition['skill_hunt'] = hp.coalesce(int(self.huntingSkillSpinBox.value()), 1)
+    _characterDefinition['skill_open_stuck_door'] = hp.coalesce(int(self.openStuckDoorSkillSpinBox.value()), 1)
+    _characterDefinition['skill_find_secret_door'] = hp.coalesce(int(self.findSecretDoorSkillSpinBox.value()), 1)
+    _characterDefinition['notes'] = ''
+
+    return _characterDefinition
+
+
   def updateAC(self):
-    _dexMod = self.dexterityModSpinBox.value()
-    _ac = 9 - _dexMod
+    _ac = self.calculateUnarmoredAc()
     self.acSpinBox.setValue(_ac)
-    self.acBonusLabel.setText(f'{_dexMod}')
+    self.acBonusLabel.setText(f'{self.dexterityModSpinBox.value()}')
     self.unarmoredACLabel.setText(str(_ac))
 
   def updateUiWithClassData(self):
@@ -1406,30 +1722,37 @@ class CharacterBuildWidget(QWidget):
     _level = self.levelSpinBox.value()
 
     # Languages
-    self.languagesLineEdit.setText(self.classData['languages']['VALUE'])
+    self.languagesLineEdit.setText(self.classData['languages'])
 
     # Hit-Dice
-    _hitDice = self.classData['hit_dice']['VALUE']
+    _hitDice = self.classData['hit_dice']
     self.hdSpinBoxLabel.setText(f'HD ({_hitDice}):')
 
     # Get data based on level
-    _levelProgression = self.classData['level_progression']['VALUE']
-    _levelNormalized = (_level if _level < len(_levelProgression) else len(_levelProgression) - 1) - 1
+    _levelProgression = self.classData['level_progression']
+    _levelProgressionData = _levelProgression['rows']
+    _levelNormalized = (_level if _level < len(_levelProgressionData) else len(_levelProgressionData) - 1) - 1
 
     # THAC0
-    _thac0 = int(_levelProgression[_levelNormalized]['thac0'].split(' ')[0])
+    _thac0 = int(_levelProgressionData[_levelNormalized]['thac0'].split(' ')[0])
     self.thac0SpinBox.setValue(_thac0)
 
     # Saving Throws
-    _savingThrows = self.classData['saving_throws']['VALUE']
-    self.savePoisonDeathSpinBox.setValue(int(_savingThrows[_levelNormalized]['d']))
-    self.saveParalysisPetrificationSpinBox.setValue(int(_savingThrows[_levelNormalized]['p']))
-    self.saveSpellsRodsStavesSpinBox.setValue(int(_savingThrows[_levelNormalized]['s']))
-    self.saveBreathAttacksSpinBox.setValue(int(_savingThrows[_levelNormalized]['b']))
-    self.saveMagicWandsSpinBox.setValue(int(_savingThrows[_levelNormalized]['w']))
+    self.savePoisonDeathSpinBox.setValue(int(_levelProgressionData[_levelNormalized]['save_d']))
+    self.saveParalysisPetrificationSpinBox.setValue(int(_levelProgressionData[_levelNormalized]['save_p']))
+    self.saveSpellsRodsStavesSpinBox.setValue(int(_levelProgressionData[_levelNormalized]['save_s']))
+    self.saveBreathAttacksSpinBox.setValue(int(_levelProgressionData[_levelNormalized]['save_b']))
+    self.saveMagicWandsSpinBox.setValue(int(_levelProgressionData[_levelNormalized]['save_w']))
+
+    # Apply class modifiers
+    self.applyClassModifiers()
+
+    # Determine potential xp bonus
+    self.calculateXpBonus()
 
 class LoadDialogWidget(QWidget):
   classSelectedForLoad = Signal(int)
+  classSelectedForLoadNew = Signal(str)
   characterSelectedForLoad = Signal(int)
 
   def __init__(self, dataModelName : str, parent=None):
@@ -1439,12 +1762,12 @@ class LoadDialogWidget(QWidget):
 
     self.gameSystemLabel = QLabel('Game System: ')
     self.gameSystemComboBox = QComboBox()
-    self.gameSystemComboBox.setModel(dm.manager().model('GAME_SYSTEM'))
-    self.gameSystemComboBox.setModelColumn(dm.manager().model('GAME_SYSTEM').record().indexOf('NAME'))
+    self.gameSystemComboBox.setModel(dm.getDataModels().model('GAME_SYSTEM'))
+    self.gameSystemComboBox.setModelColumn(dm.getDataModels().model('GAME_SYSTEM').record().indexOf('NAME'))
     self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxIndexChanged)
 
     self.tableView = QTableView()
-    self.tableView.setModel(dm.manager().model(self.modelName))
+    self.tableView.setModel(dm.getDataModels().model(self.modelName))
     self.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     self.tableView.setSelectionMode(QTableView.SelectionMode.SingleSelection)
     self.tableView.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -1486,16 +1809,21 @@ class LoadDialogWidget(QWidget):
   def handleLoadButton(self, index=None):
     _model = self.tableView.model()
     _idColumn = _model.record().indexOf('ID')
+    _idColumnName = _model.record().indexOf('NAME')
 
     _selectedId = -1
+    _selectedName = ''
     if index:
       _selectedId = _model.index(index.row(), _idColumn).data()
+      _selectedName = _model.index(index.row(), _idColumnName).data()
     else:
       for _index in self.tableView.selectionModel().selectedRows():
         _selectedId = _model.index(_index.row(), _idColumn).data()
+        _selectedName = _model.index(_index.row(), _idColumnName).data()
 
     if self.modelName == 'CLASS':
-      self.classSelectedForLoad.emit(_selectedId)
+      #self.classSelectedForLoad.emit(_selectedId)
+      self.classSelectedForLoadNew.emit(_selectedName)
     elif self.modelName == 'CHARACTER':
       self.characterSelectedForLoad.emit(_selectedId)
 
@@ -1522,6 +1850,7 @@ class TraitGroupBox(QGroupBox):
 
     # Each group box keeps a copy of its trait so it can be locally modified before being saved by the TraitScrollArea
     self.trait = copy.deepcopy(trait)
+    self.trait.elements = [] if not trait.elements else trait.elements
     self.traitName = trait.name
     self.setProperty('name', 'traitGroupBox')
     self.numStaticRows = 2
@@ -1568,14 +1897,14 @@ class TraitGroupBox(QGroupBox):
     if elementList:
       for _element in elementList:
         _widget = None
-        if _element.type == 'TEXT':
+        if _element.type == 'text':
           _widget = self.buildTextElement()
           _widget.editor.setHtml(_element.content)
           _widget.editor.syncInternalBlockFormatWithDocument()
           if self.mode == 'view':
             _widget.editor.setReadOnly(True)
-        elif _element.type == 'TABLE':
-          _widget = self.buildTableElement(columns=_element.content['COLUMNS'], data=_element.content['ROWS'])
+        elif _element.type == 'table':
+          _widget = self.buildTableElement(columns=_element.content['columns'], data=_element.content['rows'])
           _widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers if self.mode == 'view' else QAbstractItemView.EditTrigger.AnyKeyPressed)
 
         _layout = self.buildElementLayout(_widget, _element.type, _traitGroupBoxLayoutRowCount)
@@ -1594,12 +1923,12 @@ class TraitGroupBox(QGroupBox):
   def buildElementLayout(self, widget, elementType : str, layoutRow : int):
     _deleteButtonTooltip = ''
 
-    if elementType == 'TEXT':
+    if elementType == 'text':
       _deleteButtonTooltip = 'Delete Text'
-    elif elementType == 'TABLE':
+    elif elementType == 'table':
       _deleteButtonTooltip = 'Delete Table'
 
-    # Determine amount trait elements within the trait group
+    # Determine number of trait elements within the trait group
     _elementCount = 0
     for _child in self.findChildren(QHBoxLayout):
       if _child.property('name') == 'elementHBoxLayout':
@@ -1682,13 +2011,10 @@ class TraitGroupBox(QGroupBox):
     _table.horizontalHeader().sectionDoubleClicked.connect(lambda sectionIndex: self.editHeaderSectionName(_table, sectionIndex))
 
     # Load data
-    _rowCount = 0
-    for _row in _data:
-      for _column in range(len(_columns)):
+    for i, _row in enumerate(_data):
+      for j, _column in enumerate(_columns):
         _item = QTableWidgetItem(_row[_column])
-        _table.setItem(_rowCount, _column, _item)
-      _rowCount += 1
-
+        _table.setItem(i, j, _item)
     return _table
 
   def editHeaderSectionName(self, table, sectionIndex):
@@ -1720,13 +2046,13 @@ class TraitGroupBox(QGroupBox):
     return _oldIndex
 
   def handleAddElementComboBoxActivated(self, index):
-    _elementType = self.addElementComboBox.itemText(index).upper()
+    _elementType = self.addElementComboBox.itemText(index).lower()
     self.addElementComboBox.setCurrentIndex(0)
 
     _element = None
-    if _elementType == 'TEXT':
+    if _elementType == 'text':
       _element  = Trait.Element(order=len(self.trait.elements), elementType=_elementType, content='')
-    elif _elementType == 'TABLE':
+    elif _elementType == 'table':
       _selectTableSizeWidget = qw.SelectTableSizeWidget(parent=self.addElementComboBox)
       _pos = self.addElementComboBox.mapToGlobal(QPoint(0, 0))
       _selectTableSizeWidget.move(_pos)
@@ -1738,7 +2064,7 @@ class TraitGroupBox(QGroupBox):
 
       _columns = [''] * _numColumns
       _rows = [[''] * _numColumns for _ in range(_numRows)]
-      _dict = {'COLUMNS': _columns, 'ROWS': _rows}
+      _dict = {'columns': _columns, 'rows': _rows}
       _element  = Trait.Element(order=len(self.trait.elements), elementType=_elementType, content=_dict)
 
     self.trait.elements.append(Trait.Element(_element.order, _element.type, _element.content))
@@ -1894,15 +2220,15 @@ class TraitsScrollArea(QScrollArea):
     self.resetTraitRegister()
 
     # Load traits
-    _traits = json.loads(traits)
+    _traits = traits
     # Deserialize traits into Trait objects
-    for _trait in _traits:
+    for i, _trait in enumerate(_traits):
       _elements = []
-      for _elementDict in _trait['ELEMENTS']:
-        _element = Trait.Element(_elementDict['ORDER'], _elementDict['TYPE'], _elementDict['CONTENT'])
+      for j, _elementDict in enumerate(_trait['elements']):
+        _element = Trait.Element(j, _elementDict['type'], _elementDict['content'])
         _elements.append(_element)
 
-      self.addTrait(name=_trait['NAME'], elementList=_elements, addToRegister=True)
+      self.addTrait(name=_trait['name'], elementList=_elements, addToRegister=True)
 
   def getTraitPositionInRegisterByName(self, name : str) -> int | None :
     _position = next((_i for _i, _t in enumerate(self.traits) if _t.name == name), None)
@@ -2029,12 +2355,12 @@ class TraitsScrollArea(QScrollArea):
     for _child in traitGroupBox.findChildren(qw.RichTextEditor):
       _htmlStr = _child.toHtml()
       _order = _child.property('order')
-      _elements.append(Trait.Element(_order, 'TEXT', _htmlStr))
+      _elements.append(Trait.Element(_order, 'text', _htmlStr))
 
     for _child in traitGroupBox.findChildren(QTableWidget):
       _tableDict = qh.serializeTableWidgetToDict(_child)
       _order = _child.property('order')
-      _elements.append(Trait.Element(_order, 'TABLE', _tableDict))
+      _elements.append(Trait.Element(_order, 'table', _tableDict))
 
     _elements.sort(key=lambda element: element.order)
 
@@ -2071,55 +2397,104 @@ class TraitsScrollArea(QScrollArea):
       _name = _trait.name
       _elements = []
       for i, _element in enumerate(_trait.elements):
-        _elements.append({'ORDER': i, 'TYPE': _element.type, 'CONTENT': _element.content})
-      _result.append({'NAME': _name, 'ELEMENTS': _elements})
+        _elements.append({'order': i, 'type': _element.type, 'content': _element.content})
+      _result.append({'name': _name, 'elements': _elements})
 
     return _result
 
-class ManageClassOSEWidget(QWidget):
+class ClassManagerOseWidget(QWidget):
   def __init__(self, parent=None):
     super().__init__(parent)
 
     #Fields
-    self.gameSystemId = db.query(statement='select ID from GAME_SYSTEM where NAME_SHORT = ?', args=('OSE',), one=True)['ID']
+    self.gameSystemId = dm.getDataModels().getDataForModelIndex(modelName='GAME_SYSTEM', columnName='ID', filterColumns=('NAME_SHORT',), filterValues=('OSE',))
     self.isCustomClass = False
+    self.usesMagic = False
+
+    # Header Label
+    _headerLabel = QLabel('Class Manager')
+    _headerLabel.setObjectName('headerLabel')
+
+    ## Settings GroupBox
+
+    # Game System ComboBox
+    _gameSystemLabel = QLabel('Game System: ')
+    self.gameSystemComboBox = QComboBox()
+    self.gameSystemComboBox.setModel(dm.getDataModels().model('GAME_SYSTEM'))
+    self.gameSystemComboBox.setModelColumn(dm.getDataModels().model('GAME_SYSTEM').record().indexOf('NAME'))
+    self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxIndexChanged)
+
+    # Custom Class CheckBox
+    _customClassCheckBoxLabel = QLabel('Custom Class: ')
+    self.customClassCheckBox = QCheckBox()
+    self.customClassCheckBox.setChecked(self.isCustomClass)
+    self.customClassCheckBox.toggled.connect(self.handleCustomClassCheckBoxToggled)
+
+    # Uses Magic CheckBox
+    _usesMagicCheckBoxLabel = QLabel('Uses Magic: ')
+    self.usesMagicCheckBox = QCheckBox()
+    self.usesMagicCheckBox.setChecked(self.usesMagic)
+    self.usesMagicCheckBox.toggled.connect(self.handleUsesMagicCheckBoxToggled)
+
+    _settingsGroupBoxGridLayout = QGridLayout()
+    _settingsGroupBoxGridLayout.setSpacing(15)
+    _settingsGroupBoxGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _settingsGroupBoxGridLayout.setContentsMargins(15, 15, 15, 15)
+    _settingsGroupBoxGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _settingsGroupBoxGridLayout.addWidget(_gameSystemLabel, 0, 0)
+    _settingsGroupBoxGridLayout.addWidget(self.gameSystemComboBox, 0, 1, 1, 3)
+    _settingsGroupBoxGridLayout.addWidget(_customClassCheckBoxLabel, 1, 0)
+    _settingsGroupBoxGridLayout.addWidget(self.customClassCheckBox, 1, 1)
+    _settingsGroupBoxGridLayout.addWidget(_usesMagicCheckBoxLabel, 1, 2)
+    _settingsGroupBoxGridLayout.addWidget(self.usesMagicCheckBox, 1, 3)
+
+    _settingsGroupBoxGridLayout.setColumnStretch(0, 1)
+    _settingsGroupBoxGridLayout.setColumnStretch(1, 1)
+    _settingsGroupBoxGridLayout.setColumnStretch(2, 1)
+    _settingsGroupBoxGridLayout.setColumnStretch(3, 1)
+    _settingsGroupBoxGridLayout.setColumnStretch(4, 20)
+
+    _settingsGroupBox = QGroupBox('Settings')
+    _settingsGroupBox.setLayout(_settingsGroupBoxGridLayout)
+
+    ## Class Manager GroupBox
 
     _nameLabel = QLabel('Name:')
-    _nameLineEdit = QLineEdit()
-    _nameLineEdit.setProperty('name', 'name')
+    self.nameLineEdit = QLineEdit()
+    self.nameLineEdit.setProperty('name', 'name')
 
     _primeRequisitesLabel = QLabel('Prime Requisites:')
-    _primeRequisitesLineEdit = QLineEdit()
-    _primeRequisitesLineEdit.setProperty('name', 'prime_requisites')
+    self.primeRequisitesLineEdit = QLineEdit()
+    self.primeRequisitesLineEdit.setProperty('name', 'prime_requisites')
 
     _requirementsLabel = QLabel('Requirements:')
-    _requirementsLineEdit = QLineEdit()
-    _requirementsLineEdit.setProperty('name', 'requirements')
+    self.requirementsLineEdit = QLineEdit()
+    self.requirementsLineEdit.setProperty('name', 'requirements')
 
     _hitDiceLabel = QLabel('Hit Dice:')
-    _hitDiceLineEdit = QLineEdit()
-    _hitDiceLineEdit.setProperty('name', 'hit_dice')
+    self.hitDiceLineEdit = QLineEdit()
+    self.hitDiceLineEdit.setProperty('name', 'hit_dice')
 
     _maximumLevelLabel = QLabel('Maximum Level:')
-    _maximumLevelLineEdit = QLineEdit()
-    _maximumLevelLineEdit.setProperty('name', 'maximum_level')
+    self.maximumLevelLineEdit = QLineEdit()
+    self.maximumLevelLineEdit.setProperty('name', 'maximum_level')
 
     _armourLabel = QLabel('Armour:')
-    _armourLineEdit = QLineEdit()
-    _armourLineEdit.setProperty('name', 'armour')
+    self.armourLineEdit = QLineEdit()
+    self.armourLineEdit.setProperty('name', 'armour')
 
     _weaponsLabel = QLabel('Weapons:')
-    _weaponsLineEdit = QLineEdit()
-    _weaponsLineEdit.setProperty('name', 'weapons')
+    self.weaponsLineEdit = QLineEdit()
+    self.weaponsLineEdit.setProperty('name', 'weapons')
 
     _languagesLabel = QLabel('Languages:')
-    _languagesLineEdit = QLineEdit()
-    _languagesLineEdit.setProperty('name', 'languages')
+    self.languagesLineEdit = QLineEdit()
+    self.languagesLineEdit.setProperty('name', 'languages')
 
     _descriptionLabel = QLabel('Description:')
-    _descriptionPlainTextEdit = QPlainTextEdit()
-    _descriptionPlainTextEdit.setProperty('name', 'description')
-    _descriptionPlainTextEdit.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum)
+    self.descriptionPlainTextEdit = QPlainTextEdit()
+    self.descriptionPlainTextEdit.setProperty('name', 'description')
+    self.descriptionPlainTextEdit.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum)
 
     _levelProgressionLabel = QLabel('Level Progression:')
     _levelProgressionAddButton = QPushButton('+')
@@ -2132,32 +2507,19 @@ class ManageClassOSEWidget(QWidget):
     self.levelProgressionTableWidget = QTableWidget()
     self.levelProgressionTableWidget.setProperty('name', 'level_progression')
     self.levelProgressionTableWidget.setRowCount(0)
-    self.levelProgressionTableWidget.setColumnCount(4)
-    self.levelProgressionTableWidget.setHorizontalHeaderItem(0, QTableWidgetItem('XP'))
-    self.levelProgressionTableWidget.setHorizontalHeaderItem(1, QTableWidgetItem('HD'))
-    self.levelProgressionTableWidget.setHorizontalHeaderItem(2, QTableWidgetItem('THAC0'))
-    self.levelProgressionTableWidget.setHorizontalHeaderItem(3, QTableWidgetItem('ACTIONS'))
 
-    _savesLabel = QLabel('Saving Throws:')
-    _savesAddButton = QPushButton('+')
-    _savesAddButton.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-    _savesAddButton.clicked.connect(self.handleSavesAddButton)
+    # Set up level progression table columns
+    _levelProgressionDefinitionData = data.getGameSystemData().getClassDefinition(self.getGameSystemNameFromComboBox()).get('level_progression')
+    _levelProgressionTableColumns = [_column['label'] for _column in _levelProgressionDefinitionData.get('columns', [])]
+    self.levelProgressionTableWidget.setColumnCount(len(_levelProgressionTableColumns) + 1)
 
-    _savesAddButtonHelperLayout = QHBoxLayout()
-    _savesAddButtonHelperLayout.addWidget(_savesAddButton)
-    _savesAddButtonHelperLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum))
+    for i, _column in enumerate(_levelProgressionTableColumns):
+      self.levelProgressionTableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(_column))
+      _columnWidth = max(len(_column) * 10, 80)
+      self.levelProgressionTableWidget.setColumnWidth(i, _columnWidth)
 
-    self.savesTableWidget = QTableWidget()
-    self.savesTableWidget.setProperty('name', 'saving_throws')
-    self.savesTableWidget.setRowCount(0)
-    self.savesTableWidget.setColumnCount(6)
-    self.savesTableWidget.setHorizontalHeaderItem(0, QTableWidgetItem('D'))
-    self.savesTableWidget.setHorizontalHeaderItem(1, QTableWidgetItem('W'))
-    self.savesTableWidget.setHorizontalHeaderItem(2, QTableWidgetItem('P'))
-    self.savesTableWidget.setHorizontalHeaderItem(3, QTableWidgetItem('B'))
-    self.savesTableWidget.setHorizontalHeaderItem(4, QTableWidgetItem('S'))
-    self.savesTableWidget.setHorizontalHeaderItem(5, QTableWidgetItem('ACTIONS'))
-
+    self.levelProgressionTableWidget.setHorizontalHeaderItem(len(_levelProgressionTableColumns), QTableWidgetItem('ACTIONS'))
+    self.levelProgressionTableWidget.setColumnWidth(len(_levelProgressionTableColumns), len('ACTIONS') * 10)
     # Traits #
     self.traitsScrollArea = TraitsScrollArea()
 
@@ -2178,6 +2540,7 @@ class ManageClassOSEWidget(QWidget):
     self.loadClassWidget = LoadDialogWidget(dataModelName='CLASS')
     self.loadClassWidget.setWindowTitle('Load Class From Database')
     self.loadClassWidget.classSelectedForLoad.connect(self.loadClassDataFromDatabase)
+    self.loadClassWidget.classSelectedForLoadNew.connect(self.loadClassData)
 
     # Move to Center of the main window
     _mainWindow = hp.getMainWindow()
@@ -2196,40 +2559,56 @@ class ManageClassOSEWidget(QWidget):
     _bottomButtonRowHelperLayout.addWidget(_helpButton)
     _bottomButtonRowHelperLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum))
 
-    _mainGridLayout = QGridLayout()
-    _mainGridLayout.setContentsMargins(0, 0, 0, 0)
-    _mainGridLayout.addWidget(_nameLabel, 0, 0)
-    _mainGridLayout.addWidget(_nameLineEdit, 0, 1)
-    _mainGridLayout.addWidget(_primeRequisitesLabel, 0, 2)
-    _mainGridLayout.addWidget(_primeRequisitesLineEdit, 0, 3)
-    _mainGridLayout.addWidget(self.traitsScrollArea, 0, 4, 11, 1)
-    _mainGridLayout.addWidget(_hitDiceLabel, 1, 0)
-    _mainGridLayout.addWidget(_hitDiceLineEdit, 1, 1)
-    _mainGridLayout.addWidget(_requirementsLabel, 1, 2)
-    _mainGridLayout.addWidget(_requirementsLineEdit, 1, 3)
-    _mainGridLayout.addWidget(_maximumLevelLabel, 2, 0)
-    _mainGridLayout.addWidget(_maximumLevelLineEdit, 2, 1)
-    _mainGridLayout.addWidget(_armourLabel, 2, 2)
-    _mainGridLayout.addWidget(_armourLineEdit, 2, 3)
-    _mainGridLayout.addWidget(_languagesLabel, 3, 0)
-    _mainGridLayout.addWidget(_languagesLineEdit, 3, 1)
-    _mainGridLayout.addWidget(_weaponsLabel, 3, 2)
-    _mainGridLayout.addWidget(_weaponsLineEdit, 3, 3)
-    _mainGridLayout.addWidget(_descriptionLabel, 4, 0)
-    _mainGridLayout.addWidget(_descriptionPlainTextEdit, 4, 1, 1, 3)
-    _mainGridLayout.addWidget(_levelProgressionLabel, 5, 0)
-    _mainGridLayout.addLayout(_levelProgressionAddButtonHelperLayout, 6, 0)
-    _mainGridLayout.addWidget(self.levelProgressionTableWidget, 7, 0, 1, 4)
-    _mainGridLayout.addWidget(_savesLabel, 8, 0)
-    _mainGridLayout.addLayout(_savesAddButtonHelperLayout, 9, 0)
-    _mainGridLayout.addWidget(self.savesTableWidget, 10, 0, 1, 4)
-    _mainGridLayout.addLayout(_bottomButtonRowHelperLayout, 11, 0, 1, 4)
+    _propertiesGridLayout = QGridLayout()
+    _propertiesGridLayout.setSpacing(15)
+    _propertiesGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _propertiesGridLayout.setContentsMargins(15, 15, 15, 15)
+    _propertiesGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-    _mainGridLayout.setColumnStretch(0, 1)
-    _mainGridLayout.setColumnStretch(1, 1)
-    _mainGridLayout.setColumnStretch(2, 1)
-    _mainGridLayout.setColumnStretch(3, 1)
-    _mainGridLayout.setColumnStretch(4, 2)
+    _propertiesGridLayout.addWidget(_nameLabel, 0, 0)
+    _propertiesGridLayout.addWidget(self.nameLineEdit, 0, 1)
+    _propertiesGridLayout.addWidget(_requirementsLabel, 0, 2)
+    _propertiesGridLayout.addWidget(self.requirementsLineEdit, 0, 3)
+    _propertiesGridLayout.addWidget(self.traitsScrollArea, 0, 4, 11, 1)
+    _propertiesGridLayout.addWidget(_hitDiceLabel, 1, 0)
+    _propertiesGridLayout.addWidget(self.hitDiceLineEdit, 1, 1)
+    _propertiesGridLayout.addWidget(_primeRequisitesLabel, 1, 2)
+    _propertiesGridLayout.addWidget(self.primeRequisitesLineEdit, 1, 3)
+    _propertiesGridLayout.addWidget(_maximumLevelLabel, 2, 0)
+    _propertiesGridLayout.addWidget(self.maximumLevelLineEdit, 2, 1)
+    _propertiesGridLayout.addWidget(_armourLabel, 2, 2)
+    _propertiesGridLayout.addWidget(self.armourLineEdit, 2, 3)
+    _propertiesGridLayout.addWidget(_languagesLabel, 3, 0)
+    _propertiesGridLayout.addWidget(self.languagesLineEdit, 3, 1)
+    _propertiesGridLayout.addWidget(_weaponsLabel, 3, 2)
+    _propertiesGridLayout.addWidget(self.weaponsLineEdit, 3, 3)
+    _propertiesGridLayout.addWidget(_descriptionLabel, 4, 0)
+    _propertiesGridLayout.addWidget(self.descriptionPlainTextEdit, 4, 1, 1, 3)
+    _propertiesGridLayout.addWidget(_levelProgressionLabel, 5, 0)
+    _propertiesGridLayout.addLayout(_levelProgressionAddButtonHelperLayout, 6, 0)
+    _propertiesGridLayout.addWidget(self.levelProgressionTableWidget, 7, 0, 1, 4)
+    _propertiesGridLayout.addLayout(_bottomButtonRowHelperLayout, 11, 0, 1, 4)
+
+    _propertiesGridLayout.setColumnStretch(0, 1)
+    _propertiesGridLayout.setColumnStretch(1, 1)
+    _propertiesGridLayout.setColumnStretch(2, 1)
+    _propertiesGridLayout.setColumnStretch(3, 1)
+    _propertiesGridLayout.setColumnStretch(4, 1)
+
+    _propertiesGroupBox = QGroupBox('Properties')
+    _propertiesGroupBox.setLayout(_propertiesGridLayout)
+
+    ## Main Layout
+
+    _mainGridLayout = QGridLayout()
+    _mainGridLayout.setSpacing(15)
+    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _mainGridLayout.setContentsMargins(15, 15, 15, 15)
+    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+    _mainGridLayout.addWidget(_headerLabel, 0, 0)
+    _mainGridLayout.addWidget(_settingsGroupBox, 1, 0)
+    _mainGridLayout.addWidget(_propertiesGroupBox, 2, 0)
 
     self.setLayout(_mainGridLayout)
 
@@ -2238,7 +2617,14 @@ class ManageClassOSEWidget(QWidget):
     self.traitsScrollArea.addTraitsFromJson(traits)
 
   def getClassPropertyId(self, propertyName):
-    return db.query(statement='select ID from CLASS_PROPERTY where NAME = ? and GAME_SYSTEM = ?', args=(propertyName, self.gameSystemId), one=True)['ID']
+    return dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(propertyName,))
+
+  def getGameSystemNameFromComboBox(self) -> str | None:
+    _gameSystemLabel = self.gameSystemComboBox.currentText()
+    _gameSystemData = data.getGameSystemData()
+    _gameSystemName = next((_g for _g in _gameSystemData.gameSystemDataStorage if _gameSystemData.gameSystemDataStorage.get(_g)['label'] == _gameSystemLabel), None)
+
+    return _gameSystemName
 
   def handleClearButton(self, confirm=True):
     if confirm:
@@ -2254,9 +2640,23 @@ class ManageClassOSEWidget(QWidget):
       _child.clear()
 
     self.levelProgressionTableWidget.setRowCount(0)
-    self.savesTableWidget.setRowCount(0)
+    for i in range(self.levelProgressionTableWidget.columnCount()):
+      self.levelProgressionTableWidget.showColumn(i)
     self.traitsScrollArea.resetLayout()
     self.traitsScrollArea.traits = []
+
+    self.isCustomClass = False
+    self.usesMagic = False
+    self.customClassCheckBox.setChecked(self.isCustomClass)
+    self.usesMagicCheckBox.setChecked(self.usesMagic)
+
+  def handleCustomClassCheckBoxToggled(self, toggled):
+    self.isCustomClass = toggled
+    self.customClassCheckBox.setChecked(toggled)
+
+  def handleUsesMagicCheckBoxToggled(self, toggled):
+    self.usesMagic = toggled
+    self.usesMagicCheckBox.setChecked(toggled)
 
   def handleDeleteLevelProgressionRowButton(self):
     _sender = self.sender()
@@ -2278,31 +2678,15 @@ class ManageClassOSEWidget(QWidget):
       for _button in _container.findChildren(QPushButton):
         _button.setProperty('row', _updateRow)
 
-  def handleDeleteSavesRowButton(self):
-    _sender = self.sender()
-    if _sender is None:
-      return
-
-    _row = _sender.property('row')
-    if _row is None:
-      return
-
-    self.savesTableWidget.removeRow(_row)
-
-    # Update row properties after removal
-    for _updateRow in range(_row, self.savesTableWidget.rowCount()):
-      _container = self.savesTableWidget.cellWidget(_updateRow, self.savesTableWidget.columnCount() - 1)
-      if not _container:
-        continue
-
-      for _button in _container.findChildren(QPushButton):
-        _button.setProperty('row', _updateRow)
+  def handleGameSystemComboBoxIndexChanged(self):
+    pass
 
   def handleLevelProgressionAddButton(self):
     self.levelProgressionTableWidget.setRowCount(self.levelProgressionTableWidget.rowCount() + 1)
-    self.levelProgressionTableWidget.setItem(self.levelProgressionTableWidget.rowCount() - 1, 0, QTableWidgetItem(''))
-    self.levelProgressionTableWidget.setItem(self.levelProgressionTableWidget.rowCount() - 1, 1, QTableWidgetItem(''))
-    self.levelProgressionTableWidget.setItem(self.levelProgressionTableWidget.rowCount() - 1, 2, QTableWidgetItem(''))
+    for i in range(self.levelProgressionTableWidget.columnCount()):
+      _item = QTableWidgetItem('')
+      _item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+      self.levelProgressionTableWidget.setItem(self.levelProgressionTableWidget.rowCount() - 1, i, _item)
 
     app = QApplication.instance()
     _trashIcon = app.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
@@ -2327,7 +2711,7 @@ class ManageClassOSEWidget(QWidget):
     _buttonContainerLayout.setSpacing(5)
     _buttonContainerLayout.setContentsMargins(2, 2, 2, 2)
 
-    self.levelProgressionTableWidget.setCellWidget(self.levelProgressionTableWidget.rowCount() - 1, 3, _buttonContainer)
+    self.levelProgressionTableWidget.setCellWidget(self.levelProgressionTableWidget.rowCount() - 1, self.levelProgressionTableWidget.columnCount() -1, _buttonContainer)
 
   def handleLoadFromDbButton(self):
     self.loadClassWidget.show()
@@ -2346,51 +2730,6 @@ class ManageClassOSEWidget(QWidget):
     for _column in range(self.levelProgressionTableWidget.columnCount() - 1):
       self.levelProgressionTableWidget.item(_row, _column).setText('')
 
-  def handleResetSavesRowButton(self):
-    _sender = QApplication.instance().focusWidget()
-    if _sender is None:
-      return
-
-    _row = _sender.property('row')
-    if _row is None:
-      return
-
-    for _column in range(self.savesTableWidget.columnCount() - 1):
-      self.savesTableWidget.item(_row, _column).setText('')
-
-  def handleSavesAddButton(self):
-    self.savesTableWidget.setRowCount(self.savesTableWidget.rowCount() + 1)
-    self.savesTableWidget.setItem(self.savesTableWidget.rowCount() - 1, 0, QTableWidgetItem(''))
-    self.savesTableWidget.setItem(self.savesTableWidget.rowCount() - 1, 1, QTableWidgetItem(''))
-    self.savesTableWidget.setItem(self.savesTableWidget.rowCount() - 1, 2, QTableWidgetItem(''))
-    self.savesTableWidget.setItem(self.savesTableWidget.rowCount() - 1, 3, QTableWidgetItem(''))
-    self.savesTableWidget.setItem(self.savesTableWidget.rowCount() - 1, 4, QTableWidgetItem(''))
-
-    app = QApplication.instance()
-    _trashIcon = app.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-    _clearIcon = app.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-
-    _deleteButton = QPushButton()
-    _deleteButton.setIcon(_trashIcon)
-    _deleteButton.setToolTip('Delete')
-    _deleteButton.setProperty('row', self.savesTableWidget.rowCount() - 1)
-    _deleteButton.clicked.connect(self.handleDeleteSavesRowButton)
-
-    _resetButton = QPushButton('-')
-    _resetButton.setIcon(_clearIcon)
-    _resetButton.setToolTip('Reset')
-    _resetButton.setProperty('row', self.savesTableWidget.rowCount() - 1)
-    _resetButton.clicked.connect(self.handleResetSavesRowButton)
-
-    _buttonContainer = QWidget()
-    _buttonContainerLayout = QHBoxLayout(_buttonContainer)
-    _buttonContainerLayout.addWidget(_deleteButton)
-    _buttonContainerLayout.addWidget(_resetButton)
-    _buttonContainerLayout.setSpacing(5)
-    _buttonContainerLayout.setContentsMargins(2, 2, 2, 2)
-
-    self.savesTableWidget.setCellWidget(self.savesTableWidget.rowCount() - 1, 5, _buttonContainer)
-
   def handleSaveToDatabaseButton(self):
     # Class name here to make check asap
     _className = qh.findChildByProperty(self, QLineEdit, 'name', 'name').text()
@@ -2399,12 +2738,13 @@ class ManageClassOSEWidget(QWidget):
       logging.error(f'You must enter a class name to save a class to the database! All actions have been reverted.')
       return
 
-    _classInfo = db.query(statement='select ID from CLASS where NAME = ? and GAME_SYSTEM = ?', args=(_className, self.gameSystemId), one=True)
+    # Get class id from name
+    _classId = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumns=('NAME', 'GAME_SYSTEM'), filterValues=(_className, self.gameSystemId))
 
     _overwriteClass = False
     db.beginTransaction()
 
-    if _classInfo:
+    if _classId:
       _dialog = hp.OkCancelDialog(
         title=f'Class {_className} Already Exists!',
         text=f'The class {_className} for game system OSE already exists!\nDo you want to overwrite it?')
@@ -2414,8 +2754,14 @@ class ManageClassOSEWidget(QWidget):
         logging.info(f'Class {_className} has not been saved.')
         return
       else:
-        db.delete(statement='delete from CLASS where ID = ?', args=(_classInfo['ID'],))
-        db.delete(statement='delete from CLASS_X_CLASS_PROPERTY where CLASS = ?', args=(_classInfo['ID'],))
+        db.delete(statement='delete from CLASS where ID = ?', args=(_classId,))
+        db.delete(statement='delete from CLASS_X_CLASS_PROPERTY where CLASS = ?', args=(_classId,))
+
+    # Write new class info to database
+    _statement = 'insert into CLASS(NAME, GAME_SYSTEM, CUSTOM, USES_MAGIC) values (?, ?, ?, ?)'
+    _args = (_className, self.gameSystemId, self.isCustomClass, self.usesMagic)
+    _sqlRc = db.insert(statement=_statement, args=_args)
+    _maxSqlRc = _sqlRc
 
     ## Text Edits
     _classPrimeRequisites = qh.findChildByProperty(self, QLineEdit, 'name', 'prime_requisites').text()
@@ -2427,75 +2773,6 @@ class ManageClassOSEWidget(QWidget):
     _classLanguages = qh.findChildByProperty(self, QLineEdit, 'name', 'languages').text()
     _classDescription = qh.findChildByProperty(self, QPlainTextEdit, 'name', 'description').toPlainText()
 
-    ## Level Progression Table
-    _levelProgression = []
-    if self.levelProgressionTableWidget.rowCount() > 0:
-      _xpColumnId = 0
-      _hdColumnId = 0
-      _thac0ColumnId = 0
-      for _column in range(self.levelProgressionTableWidget.columnCount()):
-        _columnName = self.levelProgressionTableWidget.horizontalHeaderItem(_column).text()
-        if _columnName.upper() == 'XP':
-          _xpColumnId = _column
-        elif _columnName.upper() == 'HD':
-          _hdColumnId = _column
-        elif _columnName.upper() == 'THAC0':
-          _thac0ColumnId = _column
-
-      for _row in range(self.levelProgressionTableWidget.rowCount()):
-        _dict = {
-          'ORDER': _row + 1,
-          'XP': self.levelProgressionTableWidget.item(_row, _xpColumnId).text(),
-          'HD': self.levelProgressionTableWidget.item(_row, _hdColumnId).text(),
-          'THAC0': self.levelProgressionTableWidget.item(_row, _thac0ColumnId).text()
-        }
-        _levelProgression.append(_dict)
-
-    ## Saving Throw Table
-    _savingThrowProgression = []
-    if self.savesTableWidget.rowCount() > 0:
-      _dColumnId = 0
-      _wColumnId = 0
-      _pColumnId = 0
-      _bColumnId = 0
-      _sColumnId = 0
-      for _column in range(self.savesTableWidget.columnCount()):
-        _columnName = self.savesTableWidget.horizontalHeaderItem(_column).text()
-        if _columnName.upper() == 'D':
-          _dColumnId = _column
-        elif _columnName.upper() == 'W':
-          _wColumnId = _column
-        elif _columnName.upper() == 'P':
-          _pColumnId = _column
-        elif _columnName.upper() == 'B':
-          _bColumnId = _column
-        elif _columnName.upper() == 'S':
-          _sColumnId = _column
-
-      for _row in range(self.savesTableWidget.rowCount()):
-        _d = self.savesTableWidget.item(_row, _dColumnId).text()
-        _w = self.savesTableWidget.item(_row, _wColumnId).text()
-        _p = self.savesTableWidget.item(_row, _pColumnId).text()
-        _b = self.savesTableWidget.item(_row, _bColumnId).text()
-        _s = self.savesTableWidget.item(_row, _sColumnId).text()
-        _dict = {'ORDER': _row + 1, 'D': _d, 'W': _w, 'P': _p, 'B': _b, 'S': _s}
-        _savingThrowProgression.append(_dict)
-
-    # Write to database
-
-    _statement = 'insert into CLASS(NAME, GAME_SYSTEM, CUSTOM) values (?, ?, ?)'
-    _args = (_className, self.gameSystemId, self.isCustomClass)
-    _sqlRc = db.insert(statement='insert into CLASS(NAME, GAME_SYSTEM, CUSTOM) values (?, ?, ?)', args=_args)
-    _maxSqlRc = _sqlRc
-
-    if _sqlRc != 0:
-      db.printLastError(message=f'An error occurred during insertion into the database! All transactions will be reverted.\n{hp.fillSqlPlaceholders(_statement, _args)}')
-      db.printLastError()
-      db.rollbackChanges()
-      return
-
-    _classId = db.query(statement='select ID from CLASS where NAME = ? and GAME_SYSTEM = ?', args=(_className, self.gameSystemId), one=True)['ID']
-
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, self.getClassPropertyId('prime_requisites'), _classPrimeRequisites), _maxSqlRc)
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, self.getClassPropertyId('requirements'), _classRequirements), _maxSqlRc)
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, self.getClassPropertyId('hit_dice'), _classHitDice), _maxSqlRc)
@@ -2505,18 +2782,22 @@ class ManageClassOSEWidget(QWidget):
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, self.getClassPropertyId('languages'), _classLanguages), _maxSqlRc)
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, self.getClassPropertyId('description'), _classDescription), _maxSqlRc)
 
-    _levelProgressionClassPropertyId = self.getClassPropertyId('level_progression')
-    _levelProgressionSubProperties = db.query(statement='select ID, NAME from CLASS_PROPERTY where PARENT = ?', args=(_levelProgressionClassPropertyId, ))
-    for _level in _levelProgression:
-      for _subProperty in _levelProgressionSubProperties:
-        _maxSqlRc = max(self.writeClassPropertyToDb(_classId, propertyId=_subProperty['ID'], propertyValue=_level[_subProperty['NAME'].upper()], order=_level['ORDER']), _maxSqlRc)
+    ## Level Progression Table
+    for i in range(self.levelProgressionTableWidget.rowCount()):
+      for j in range(self.levelProgressionTableWidget.columnCount()):
+        _columnName = self.levelProgressionTableWidget.horizontalHeaderItem(j).text()
+        # Exclude certain columns
+        if _columnName == 'ACTIONS':
+          continue
 
-    _savingThrowsClassPropertyId = self.getClassPropertyId('saving_throws')
-    _savingThrowProgressionSubProperties = db.query(statement='select ID, NAME from CLASS_PROPERTY where PARENT = ?', args=(_savingThrowsClassPropertyId, ))
-    for _saveLevel in _savingThrowProgression:
-      for _subProperty in _savingThrowProgressionSubProperties:
-        _maxSqlRc = max(self.writeClassPropertyToDb(_classId, _subProperty['ID'], _saveLevel[_subProperty['NAME'].upper()], order=_saveLevel['ORDER']), _maxSqlRc)
+        # Map column header to property name and retrieve id for insert
+        _propertyName = dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='NAME', filterColumns=('LABEL',), filterValues=(_columnName,))
+        _propertyId = dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(_propertyName,))
 
+        _value = self.levelProgressionTableWidget.item(i, j).text() if self.levelProgressionTableWidget.item(i, j) else ''
+        _maxSqlRc = max(self.writeClassPropertyToDb(_classId, propertyId=_propertyId, propertyValue=_value, order=i), _maxSqlRc)
+
+   # Traits
     _serializedTraits = self.traitsScrollArea.serializeTraitRegister()
     _jsonStr = json.dumps(_serializedTraits)
 
@@ -2524,18 +2805,94 @@ class ManageClassOSEWidget(QWidget):
     _maxSqlRc = max(self.writeClassPropertyToDb(_classId, _traitsClassPropertyId, _jsonStr), _maxSqlRc)
 
     if _maxSqlRc > 0:
+      db.printLastError(message=f'An error occurred during insertion into the database! All transactions will be reverted.\n{hp.fillSqlPlaceholders(_statement, _args)}')
+      db.printLastError()
       db.rollbackChanges()
-      logging.error('All transactions have been reverted!')
       return
 
     db.endTransaction()
 
+    # Refresh relevant models
+    _classModel = dm.getDataModels().model('CLASS')
+    _classModel.setQuery(_classModel.query().lastQuery())
+
+  def changeSpellColumnVisibility(self, classId):
+    _classUsesMagic = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,))
+    _hideSpellColumns = False
+    if not bool(_classUsesMagic):
+      _hideSpellColumns = True
+
+    for i in range(self.levelProgressionTableWidget.columnCount()):
+      _columName = self.levelProgressionTableWidget.horizontalHeaderItem(i).text().upper()
+      if _columName.find('SPELL') != -1:
+        self.levelProgressionTableWidget.setColumnHidden(i, _hideSpellColumns)
+
   def isUiEmpty(self):
     _isEmpty = not any(_child.text() for _child in self.findChildren(QLineEdit))
     _isEmpty = _isEmpty and self.levelProgressionTableWidget.rowCount() == 0
-    _isEmpty = _isEmpty and self.savesTableWidget.rowCount() == 0
 
     return _isEmpty
+
+  def loadClassData(self, className):
+    if not self.isUiEmpty():
+      _dialog = hp.OkCancelDialog(title='Override UI Data', text='Loading a class will override your current data!\nAre you sure?')
+
+      if not _dialog.exec_():
+        return
+      else:
+        self.handleClearButton(confirm=False)
+
+    _gameSystemData = data.getGameSystemData()
+    _gameSystemName = self.getGameSystemNameFromComboBox()
+
+    if _gameSystemName is None:
+      logging.error(f'Game system {_gameSystemName} not found in game system data!')
+      return
+
+    _classProperties = _gameSystemData.getClass(_gameSystemName, className)
+    if _classProperties is None:
+      logging.error(f'Class {className} not found in game system {_gameSystemName}!')
+      return
+
+    # Set simple properties which's values are strings, integers, floats, or booleans
+    self.nameLineEdit.setText(_classProperties.get('name', ''))
+    self.primeRequisitesLineEdit.setText(_classProperties.get('prime_requisites', ''))
+    self.hitDiceLineEdit.setText(_classProperties.get('hit_dice', ''))
+    self.requirementsLineEdit.setText(_classProperties.get('requirements', ''))
+    self.maximumLevelLineEdit.setText(str(_classProperties.get('maximum_level', '')))
+    self.armourLineEdit.setText(_classProperties.get('armour', ''))
+    self.languagesLineEdit.setText(_classProperties.get('languages', ''))
+    self.weaponsLineEdit.setText(_classProperties.get('weapons', ''))
+    self.descriptionPlainTextEdit.setPlainText(_classProperties.get('description', ''))
+
+    # Level progression data is supplied as a list of dictionaries where the position within the list determines the level
+    _levelProgression = _classProperties.get('level_progression', {})
+    _levelProgressionTableColumns = _levelProgression.get('columns', [])
+    _maxSpellLevel = _classProperties.get('max_spell_level', 0)
+    for _row, _level in enumerate(_levelProgression.get('rows', [])):
+      self.handleLevelProgressionAddButton()
+      for _columnPosition, _column in enumerate(_levelProgressionTableColumns):
+        _columnLabel = _column.get('label', '')
+
+        _levelEntry = _column.get('name', '')
+        _value = _level.get(_levelEntry, '')
+        for i in range(self.levelProgressionTableWidget.columnCount()):
+          _columnName = self.levelProgressionTableWidget.horizontalHeaderItem(i).text()
+          if _columnName == _columnLabel:
+            self.levelProgressionTableWidget.item(_row, i).setText(str(_value))
+            break
+
+    for i in range(self.levelProgressionTableWidget.columnCount()):
+      _columnName = self.levelProgressionTableWidget.horizontalHeaderItem(i).text()
+
+      if (_columnName.lower().find('spells ') != -1 and
+        (not _classProperties['uses_magic'] or int(_columnName.lower().split(' ')[1]) > _maxSpellLevel)):
+        self.levelProgressionTableWidget.hideColumn(i)
+        continue
+
+    # Traits
+    if 'traits' in _classProperties:
+      self.buildTraitUiFromDb(_classProperties['traits'])
 
   def loadClassDataFromDatabase(self, classId):
     if not self.isUiEmpty():
@@ -2546,106 +2903,115 @@ class ManageClassOSEWidget(QWidget):
       else:
         self.handleClearButton(confirm=False)
 
-    _classInfo = db.query(statement='select NAME from CLASS where ID = ?', args=(classId, ), one=True)
-    _classPropertySqlStatement = '''
-      select ccp.ID, cp.NAME, ccp.VALUE, cp.PARENT
-      from GAME_SYSTEM gs
-        left join CLASS_PROPERTY cp on gs.ID = cp.GAME_SYSTEM
-        left join CLASS_X_CLASS_PROPERTY ccp on cp.ID = ccp.PROPERTY
-      where gs.ID = ? and ccp.CLASS = ?        
-      order by ccp.ID
-    '''
-    _classProperties = db.query(statement=_classPropertySqlStatement, args=(self.gameSystemId, classId))
+    # Get class data from access layer
+    _className = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='NAME', filterColumns=('ID',), filterValues=(classId,))
 
-    _uiField = qh.findChildByProperty(self, QLineEdit, 'name', 'name')
-    _uiField.setText(_classInfo['NAME'])
+    # Load and prepare class information
+    _classProperties = self.prepareClassDataForLoading(classId)
+
+    _nameField = qh.findChildByProperty(self, QLineEdit, 'name', 'name')
+    _nameField.setText(_className)
 
     if not _classProperties:
+      logging.info(f'The class {_className} does not have any registered properties!')
       return
 
     # Handle line and plain text edits
-    for _property in _classProperties:
-      _uiField = qh.findChildByProperty(self, QLineEdit, 'name', _property['NAME'])
+    for _key in _classProperties.keys():
+      _value = _classProperties[_key] if _classProperties[_key] else ''
+      _uiField = qh.findChildByProperty(self, QLineEdit, 'name', _key)
       if _uiField:
-        _uiField.setText(_property['VALUE'] if _property['VALUE'] else '')
+        _uiField.setText(_value)
         continue
 
-      _uiField = qh.findChildByProperty(self, QPlainTextEdit, 'name', _property['NAME'])
+      _uiField = qh.findChildByProperty(self, QPlainTextEdit, 'name', _key)
       if _uiField:
-        _uiField.setPlainText(_property['VALUE'] if _property['VALUE'] else '')
+        _uiField.setPlainText(_value)
         continue
 
-    # Handle table widgets
+      if _key not in ('level_progression', 'saving_throws', 'traits'):
+        logging.error(f'The class property {_key} does not have a corresponding ui field!')
 
-    # Level progression
-    _levelProgressionPropertyId = self.getClassPropertyId('level_progression')
-    _levelProgressionProperties = []
-    for _property in _classProperties:
-      if _property['PARENT'] == _levelProgressionPropertyId:
-        if _property['NAME'] not in _levelProgressionProperties:
-          _levelProgressionProperties.append(_property['NAME'])
+    # Checkboxes
+    self.handleCustomClassCheckBoxToggled(dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='CUSTOM', filterColumns=('ID',), filterValues=(classId,)))
+    self.handleUsesMagicCheckBoxToggled(dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,)))
 
-    _levelProgressionPropertyCount = len(_levelProgressionProperties)
-    _fieldPerLevelRowCount = 0
-    _levelProgression = []
-    _dict = {}
-    for _property in _classProperties:
-      if _property['PARENT'] == _levelProgressionPropertyId:
-        _dict[_property['NAME'].upper()] = _property['VALUE']
-        _fieldPerLevelRowCount += 1
-        if _fieldPerLevelRowCount == _levelProgressionPropertyCount:
-          _levelProgression.append(_dict)
-          _dict = {}
-          _fieldPerLevelRowCount = 0
-
-    _rowCount = 0
-    for _level in _levelProgression:
+    # Level progression table widget
+    for i, _level in enumerate(_classProperties['level_progression']):
       self.handleLevelProgressionAddButton()
-      for _column in range(self.levelProgressionTableWidget.columnCount()):
-        _columnNameUpper = self.levelProgressionTableWidget.horizontalHeaderItem(_column).text().upper()
-        if _columnNameUpper == 'ACTIONS':
-          continue
 
-        self.levelProgressionTableWidget.item(_rowCount, _column).setText(_level[_columnNameUpper])
+      for _key in _level.keys():
+        _value = _level[_key]
+        _columnId = qh.getColumnIdFromTableWidget(self.levelProgressionTableWidget, _key)
+        if _columnId is not None:
+          self.levelProgressionTableWidget.item(i, _columnId).setText(_value if _value else '')
+        else:
+          logging.error(f'The level progression property {_key} does not have a corresponding column in the table widget!')
 
-      _rowCount += 1
-
-    # Saving throws
-    _savingThrowPropertyId = self.getClassPropertyId('saving_throws')
-    _savingThrowProgressionProperties = []
-    for _property in _classProperties:
-      if _property['PARENT'] == _savingThrowPropertyId:
-        if _property['NAME'] not in _savingThrowProgressionProperties:
-          _savingThrowProgressionProperties.append(_property['NAME'])
-
-    _savingThrowPropertyCount = len(_savingThrowProgressionProperties)
-    _fieldPerLevelRowCount = 0
-    _savingThrows = []
-    _dict = {}
-    for _property in _classProperties:
-      if _property['PARENT'] == _savingThrowPropertyId:
-        _dict[_property['NAME'].upper()] = _property['VALUE']
-        _fieldPerLevelRowCount += 1
-        if _fieldPerLevelRowCount == _savingThrowPropertyCount:
-          _savingThrows.append(_dict)
-          _dict = {}
-          _fieldPerLevelRowCount = 0
-
-    _rowCount = 0
-    for _level in _savingThrows:
-      self.handleSavesAddButton()
-      for _column in range(self.savesTableWidget.columnCount()):
-        _columnNameUpper = self.savesTableWidget.horizontalHeaderItem(_column).text().upper()
-        if _columnNameUpper == 'ACTIONS':
-          continue
-
-        self.savesTableWidget.item(_rowCount, _column).setText(_level[_columnNameUpper])
-
-      _rowCount += 1
+    self.changeSpellColumnVisibility(classId)
 
     # Traits
-    _traits = next((p['VALUE'] for p in _classProperties if p['NAME'] == 'traits'), None)
-    self.buildTraitUiFromDb(_traits)
+    if 'traits' in _classProperties:
+      self.buildTraitUiFromDb(_classProperties['traits'])
+
+  def prepareClassDataForLoading(self, classId : int) -> dict:
+    _classPropertySqlStatement = '''
+          select ccp.ID, cp.NAME, cp.LABEL, ccp.VALUE, ccp.ORDER_1, cp.PARENT
+          from GAME_SYSTEM gs
+            left join CLASS_PROPERTY cp on gs.ID = cp.GAME_SYSTEM
+            left join CLASS_X_CLASS_PROPERTY ccp on cp.ID = ccp.PROPERTY
+          where gs.ID = ? and ccp.CLASS = ?        
+          order by ccp.ID
+        '''
+    _classProperties = db.query(statement=_classPropertySqlStatement, args=(self.gameSystemId, classId))
+    _classDataPrepared = {}
+
+    # Process simple properties with no sub properties
+    _simpleProperties = [_p for _p in _classProperties if not _p['PARENT']]
+    for _property in _simpleProperties:
+      _classDataPrepared[_property['NAME']] = _property['VALUE']
+
+    # Prepare level progression data
+    _levelProgressionProperties = [_p for _p in _classProperties if _p['PARENT'] == self.getClassPropertyId('level_progression')]
+    _orderOld = _levelProgressionProperties[0]['ORDER_1'] if _levelProgressionProperties else -1
+    _levelProgressionProcessed = []
+    _levelDict = {}
+
+    for _property in _levelProgressionProperties:
+      if _orderOld != _property['ORDER_1']:
+        _orderOld = _property['ORDER_1']
+        _levelProgressionProcessed.append(_levelDict)
+        _levelDict = {}
+
+      # Labels are used to match easier to the target table widget
+      _levelDict[_property['LABEL']] = _property['VALUE']
+
+    if _levelDict:
+      _levelProgressionProcessed.append(_levelDict)
+
+    _classDataPrepared['level_progression'] = _levelProgressionProcessed
+
+    # Prepare saving throw data
+    _savingThrowProperties = [_p for _p in _classProperties if _p['PARENT'] == self.getClassPropertyId('saving_throws')]
+    _orderOld = _savingThrowProperties[0]['ORDER_1'] if _savingThrowProperties else -1
+    _savingThrowsProcessed = []
+    _savingThrowDict = {}
+
+    for _property in _savingThrowProperties:
+      if _orderOld != _property['ORDER_1']:
+        _orderOld = _property['ORDER_1']
+        _savingThrowsProcessed.append(_savingThrowDict)
+        _savingThrowDict = {}
+
+      # Labels are used to match easier to the target table widget
+      _savingThrowDict[_property['LABEL']] = _property['VALUE']
+
+    _savingThrowsProcessed.append(_savingThrowDict)
+
+    if _savingThrowsProcessed:
+      _classDataPrepared['saving_throws'] = _savingThrowsProcessed
+
+    return _classDataPrepared
 
   def writeClassPropertyToDb(self, classId, propertyId, propertyValue, order=None):
     _statement = 'insert into CLASS_X_CLASS_PROPERTY(CLASS, PROPERTY, ORDER_1, VALUE) values (?, ?, ?, ?)'
@@ -2660,105 +3026,8 @@ class ManageClassOSEWidget(QWidget):
   def setCustomClassFlag(self, checked):
     self.isCustomClass = checked
 
-# Container for the manage class UI within the main widget
-class ManageClassGroupBox(QGroupBox):
-  def __init__(self, parent=None):
-    super().__init__(parent)
-
-    self.setTitle('Manage Class')
-
-    #Manage OSE Class widget
-    _manageClassOseWidget = ManageClassOSEWidget()
-
-    # Game System combobox
-    self.gameSystemLabel = QLabel('Game System: ')
-    self.gameSystemComboBox = QComboBox()
-    self.gameSystemComboBox.setModel(dm.manager().model('GAME_SYSTEM'))
-    self.gameSystemComboBox.setModelColumn(dm.manager().model('GAME_SYSTEM').record().indexOf('NAME'))
-    self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxIndexChanged)
-
-    # Custom Class checkbox
-    self.customClassCheckBoxLabel = QLabel('Custom Class: ')
-    self.customClassCheckBox = QCheckBox()
-    self.customClassCheckBox.toggled.connect(_manageClassOseWidget.setCustomClassFlag)
-
-    # Helper layout
-    _gameSystemHboxLayout = QHBoxLayout()
-    _gameSystemHboxLayout.addWidget(self.gameSystemLabel)
-    _gameSystemHboxLayout.addWidget(self.gameSystemComboBox)
-    _gameSystemHboxLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-
-    _customClassHboxLayout = QHBoxLayout()
-    _customClassHboxLayout.addWidget(self.customClassCheckBoxLabel)
-    _customClassHboxLayout.addWidget(self.customClassCheckBox)
-    _customClassHboxLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-
-    _settingsVboxLayout = QVBoxLayout()
-    _settingsVboxLayout.addLayout(_gameSystemHboxLayout)
-    _settingsVboxLayout.addLayout(_customClassHboxLayout)
-
-    ## Finish Setup
-
-    self.mainGridLayout = QGridLayout()
-    self.mainGridLayout.setSpacing(20)
-    self.mainGridLayout.setContentsMargins(10, 15, 10, 15)
-    self.mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    self.mainGridLayout.addLayout(_settingsVboxLayout, 0, 0)
-    self.mainGridLayout.addWidget(_manageClassOseWidget)
-
-    self.setLayout(self.mainGridLayout)
-    self.buildOseNewClassUi()
-
-  def handleGameSystemComboBoxIndexChanged(self):
-    _gameSystemNameShort = self.gameSystemComboBox.model().data(self.gameSystemComboBox.model().index(self.gameSystemComboBox.currentIndex(), self.gameSystemComboBox.model().record().indexOf('NAME_SHORT'), self.gameSystemComboBox.rootModelIndex()))
-
-    if _gameSystemNameShort.upper() == 'OSE':
-      self.buildOseNewClassUi()
-
-  def handleSaveClassButton(self):
-    pass
-
-  def buildOseNewClassUi(self):
-    pass
-
-class ClassManagerWidget(QWidget):
-  def __init__(self):
-    super().__init__()
-
-    # Header Label
-    _headerLabel = QLabel('Class Manager')
-    _headerLabel.setObjectName('headerLabel')
-
-    ## Manage class group box
-    _manageClassGroupBox = ManageClassGroupBox()
-
-    ## Finish setup
-    _mainGridLayout = QGridLayout()
-    _mainGridLayout.setSpacing(15)
-    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
-    _mainGridLayout.setContentsMargins(15, 15, 15, 15)
-    _mainGridLayout.addWidget(_headerLabel, 0, 0)
-    _mainGridLayout.addWidget(_manageClassGroupBox, 1, 0)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 1, 1)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 2, 0)
-
-    _mainGridLayout.setColumnStretch(0, 6)
-    _mainGridLayout.setColumnStretch(1, 1)
-
-    _mainGridLayout.setRowStretch(1, 12)
-    _mainGridLayout.setRowStretch(2, 1)
-
-    self.setLayout(_mainGridLayout)
-
-  def handleImportFilesButton(self):
-    _files = hp.makeFileDialog(acceptedFileExtensions='*.json', multipleFiles=True)
-
-    for _file in _files:
-      _json = hp.readJson(_file)
-      logging.info(f'Selected file: {_file}.')
-      pass
-
-    logging.info(f'{len(_files)} files were selected.')
+  def setUsesMagicFlag(self, checked):
+    self.usesMagic = checked
 
 class CharacterBuilder(QWidget):
   def __init__(self):
@@ -2770,8 +3039,8 @@ class CharacterBuilder(QWidget):
     self.menuWidget = QWidget()
     self.defineMenuLayout()
 
-    self.builderWidget = CharacterBuildWidget()
-    self.classManagerWidget = ClassManagerWidget()
+    self.builderWidget = CharacterBuilderWidget()
+    self.classManagerWidget = ClassManagerOseWidget()
 
     self.contentStackedWidget = QStackedWidget()
     self.defineContentStackedWidget()
@@ -2790,7 +3059,7 @@ class CharacterBuilder(QWidget):
 
     menuLayout = QVBoxLayout()
     menuLayout.addWidget(self.builderButton)
-    menuLayout.addWidget(self.customClassManagerButton)
+    #menuLayout.addWidget(self.customClassManagerButton)
     menuLayout.setSpacing(15)
     menuLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.menuWidget.setLayout(menuLayout)
