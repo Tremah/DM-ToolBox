@@ -1,8 +1,61 @@
+from typing import Any
+
 from PySide6.QtCore import Qt, QSortFilterProxyModel, QModelIndex, QAbstractTableModel
 from PySide6.QtSql import QSqlTableModel, QSqlRelationalTableModel, QSqlRelation, QSqlQueryModel
 
-from src import database as db
-from src import helper as hp
+import src.database as db
+
+class SortFilterModel(QSortFilterProxyModel):
+  def __init__(self, sourceModel : QSqlTableModel | QSqlQueryModel | QSqlRelationalTableModel | None = None):
+    super().__init__()
+
+    self.filterColumns = []
+    self.filterValues = []
+    self.hiddenColumns = []
+
+    if sourceModel:
+      self.setSourceModel(sourceModel)
+
+  def filterAcceptsRow(self, source_row, source_parent):
+    _columnIds = []
+    _sourceModel = self.sourceModel()
+    _allFiltersMatch = False
+    if self.filterColumns:
+      for i, _column in enumerate(self.filterColumns) :
+        # Search for current filter column
+        for j in range(_sourceModel.columnCount()):
+          if _sourceModel.headerData(j, Qt.Orientation.Horizontal) == _column:
+            _value = _sourceModel.data(_sourceModel.index(source_row, j))
+            if _value == self.filterValues[i]:
+              if i == 0:
+                _allFiltersMatch = True
+              else:
+                _allFiltersMatch = _allFiltersMatch and True
+            break
+    else:
+      _allFiltersMatch = True
+
+    return _allFiltersMatch
+
+  def filterAcceptsColumn(self, source_column, source_parent):
+    if not self.hiddenColumns:
+      return True
+
+    _columnName = self.sourceModel().headerData(source_column, Qt.Orientation.Horizontal)
+    return not _columnName in self.hiddenColumns
+
+  def showAllColumns(self):
+    self.hiddenColumns = []
+    self.invalidateFilter()
+
+  def setHiddenColumns(self, hiddenColumns : list):
+    self.hiddenColumns = hiddenColumns
+    self.invalidateFilter()
+
+  def setRowFilter(self, filterColumns : list, filterValues : list):
+    self.filterColumns = filterColumns
+    self.filterValues = filterValues
+    self.invalidateFilter()
 
 class CreatureGameSystemProxyModel(QSortFilterProxyModel):
   def __init__(self):
@@ -188,7 +241,7 @@ class FoundryDocumentJsonExportModel(QAbstractTableModel):
 
     return None
 
-  def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+  def headerData(self, section : int, orientation : Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
     if role != Qt.ItemDataRole.DisplayRole:
       return None
 
@@ -210,7 +263,73 @@ class FoundryDocumentJsonExportModel(QAbstractTableModel):
 
     return _data
 
-class DataModels:
+# Accepts a dictionary of dictionaries or a list of dictionaries and a list of column names
+# If a dictionary is supplied, it is converted to a list of dictionaries, preserving the key for each sub-dictionary under the key '_key'
+# Creates a model that can be used to display data in a table view
+class TabularDataModel(QAbstractTableModel):
+  def __init__(self, data : dict[str, dict[str, Any]] | list[dict[str, Any]] | None = None, columns : list | None = None, parent=None):
+    super().__init__(parent=parent)
+
+    if isinstance(data, dict):
+      self._data = self._dictToList(data)
+    else:
+      self._data = data or []
+
+    self._columns = columns or []
+
+    if not self._columns and self._data:
+      self._columns = list(self._data[0].keys())
+
+  def columnCount(self, parent= ...):
+    return len(self._columns)
+
+  def data(self, index, role = Qt.ItemDataRole.DisplayRole) -> Any:
+    if not index.isValid():
+      return None
+
+    if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+      _row = index.row()
+      _column = index.column()
+      _key = self._columns[_column]
+      return self._data[_row][_key]
+
+    return None
+
+  def getData(self) -> list[dict[str, Any]]:
+    _data = []
+    for i in range(self.rowCount()):
+      _rowData = {}
+      for j in range(self.columnCount()):
+        _columnName = self.headerData(j, Qt.Orientation.Horizontal)
+        _value = self.data(self.index(i, j))
+        _rowData[_columnName] = _value
+
+      _data.append(_rowData)
+
+    return _data
+
+  def headerData(self, section : int, orientation : Qt.Orientation, role : int = Qt.ItemDataRole.DisplayRole):
+    if role != Qt.ItemDataRole.DisplayRole:
+      return None
+
+    if orientation == Qt.Orientation.Horizontal:
+      return self._columns[section]
+    else:
+      return section + 1
+
+  def rowCount(self, parent= ...):
+    return len(self._data)
+
+  def _dictToList(self, data : dict | None = None):
+    _result = []
+    for _key, _subDict in data.items():
+      _row = {'_key': _key}
+      _row.update(_subDict)
+      _result.append(_row)
+
+    return _result
+
+class Models:
   def __init__(self):
     self.models = {}
 
@@ -235,6 +354,10 @@ class DataModels:
     self.models['GAME_SYSTEM'] = self.defineModel(table='GAME_SYSTEM')
     self.models['GAME_PARAMETER'] = self.defineModel(table='GAME_PARAMETER')
     self.models['GAME_PARAMETER_TYPE'] = self.defineModel(table='GAME_PARAMETER_TYPE')
+    self.models['ITEM'] = self.defineModel(table='ITEM')
+    self.models['ITEM_TYPE'] = self.defineModel(table='ITEM_TYPE')
+    self.models['ITEM_PROPERTY'] = self.defineModel(table='ITEM_PROPERTY')
+    self.models['ITEM_X_ITEM_PROPERTY'] = self.defineModel(table='ITEM_X_ITEM_PROPERTY')
     self.models['MONTH'] = self.defineModel(table='MONTH')
     self.models['PRECIPITATION_CLASS'] = self.defineModel(table='PRECIPITATION_CLASS')
     self.models['RACE'] = self.defineModel(table='RACE')
@@ -246,25 +369,31 @@ class DataModels:
     # Other
     self.models['FOUNDRY_DOCUMENTS_DATABASE_ITEMS'] = self.defineFoundryDocumentsDatabaseItemsModel()
 
-  def columnId(self, modelName, columnName):
-    _columnId = self.models[modelName].record().indexOf(columnName)
-    return _columnId
+  def getColumnIdFromName(self, model, columnName : str) -> int:
+    for i in range(model.columnCount()):
+      if columnName == model.headerData(i, Qt.Orientation.Horizontal):
+        return i
+
+    return -1
+
+  def getColumnNameFromId(self, model, columnId : int) -> str | None:
+    return model.headerData(columnId, Qt.Orientation.Horizontal)
 
   # Returns the value for one specific index
   # The row is determined by applying filterColumns and filterValue
-  def getDataForModelIndex(self, modelName : str, columnName : str, filterColumns : tuple, filterValues : tuple) -> str | int | bool | None:
-    _model = self.models[modelName]
+  def getDataForModelIndex(self, model : Any, columnName : str, filterColumns : tuple, filterValues : tuple) -> str | int | bool | None:
+    _model = model
     for i in range(_model.rowCount()):
       # Loop over filter columns and determine if the row contains the searched-for value
       _filterValuesFound = 0
       for j, _filterColumn in enumerate(filterColumns):
-        _filterColumnId = self.columnId(modelName, _filterColumn)
+        _filterColumnId = self.getColumnIdFromName(_model, _filterColumn)
         _value = _model.data(_model.index(i, _filterColumnId))
         if _value == filterValues[j]:
           _filterValuesFound += 1
 
       if _filterValuesFound == len(filterColumns):
-        _dataColumnId = self.columnId(modelName, columnName)
+        _dataColumnId = self.getColumnIdFromName(_model, columnName)
         _tValue = _model.data(_model.index(i, _dataColumnId))
         return _tValue
 
@@ -272,14 +401,14 @@ class DataModels:
 
   # Returns the data for an entire model column
   # Potential filters can be applied to select certain rows from the model
-  def getDataForModelColumn(self, modelName : str, columnName : str, filterColumn : str ='', filterValue : str ='') -> list:
-    _model = self.models[modelName]
-    _columnId = self.columnId(modelName, columnName)
+  def getDataForModelColumn(self, model : Any, columnName : str, filterColumn : str ='', filterValue : str ='') -> list:
+    _model = model
+    _columnId = self.getColumnIdFromName(_model, columnName)
     _valueList = []
 
     _filterColumnId = -1
     if filterColumn and filterValue:
-      _filterColumnId = self.columnId(modelName, filterColumn)
+      _filterColumnId = self.getColumnIdFromName(_model, filterColumn)
 
     for i in range(_model.rowCount()):
       if filterColumn and filterValue:
@@ -295,14 +424,14 @@ class DataModels:
   # Returns either
   #   A list of dictionaries containing the data for each column, with the column's names as their keys
   #   A dictionary containing the data, with the column's names as their keys
-  def getDataForModelColumns(self, modelName : str, columns : list, filterColumn : str ='', filterValue : str ='') -> list | dict:
-    _model = self.models[modelName]
+  def getDataForModelColumns(self, model : Any, columns : list, filterColumn : str ='', filterValue : str ='') -> list | dict:
+    _model = model
 
     _result = []
     _rowData = {}
     for _row in range(_model.rowCount()):
       # Get data for the entire row
-      _rowDataRaw = self.getDataForModelRow(modelName=modelName, rowIndex=_row, filterColumn=filterColumn, filterValue=filterValue)
+      _rowDataRaw = self.getDataForModelRow(model=model, rowIndex=_row, filterColumn=filterColumn, filterValue=filterValue)
       if not _rowDataRaw:
         continue
 
@@ -325,13 +454,12 @@ class DataModels:
   # Returns the data for an entire model row
   # The row can be selected by either supplying a row index or a filter column and value
   # Both are mutually exclusive while row Index will be treated as a priority
-  def getDataForModelRow(self, modelName : str, rowIndex : int = -1, filterColumn : str ='', filterValue : str ='') -> dict | None:
-    _model = self.models[modelName]
+  def getDataForModelRow(self, model : Any, rowIndex : int = -1, filterColumn : str ='', filterValue : str ='') -> dict | None:
+    _model = model
     _columnCount = _model.columnCount()
     _rowData = {}
 
     if rowIndex != -1:
-      _model = self.models[modelName]
       for i in range(_columnCount):
         _index = _model.index(rowIndex, i)
         _data = _model.data(_index)
@@ -341,7 +469,7 @@ class DataModels:
     elif filterColumn and filterValue:
       for i in range(_model.columnCount()):
         _columnName = _model.headerData(i, Qt.Orientation.Horizontal)
-        _data = self.getDataForModelIndex(modelName=modelName, columnName=_columnName, filterColumns=(filterColumn,), filterValues=(filterValue,))
+        _data = self.getDataForModelIndex(model=_model, columnName=_columnName, filterColumns=(filterColumn,), filterValues=(filterValue,))
         _rowData[_columnName] = _data
 
       return _rowData
@@ -365,7 +493,7 @@ class DataModels:
 
   def defineProxyModel(self, modelType=QSortFilterProxyModel, sourceModel=None):
     _model = modelType()
-    _model.setSourceModel(getDataModels().model(sourceModel))
+    _model.setSourceModel(dataModels.model(sourceModel))
 
     while _model.canFetchMore(QModelIndex()):
       _model.fetchMore(QModelIndex())
@@ -500,7 +628,6 @@ class DataModels:
         cl.GAME_SYSTEM
       from
         CLASS cl
-        left join GAME_SYSTEM gs on cl.GAME_SYSTEM = gs.ID 
       order by
         cl.NAME
     '''
@@ -537,8 +664,11 @@ class DataModels:
 
     return _model
 
-  def model(self, name):
-    if name not in self.models:
+  def defineTabularDataModel(self, data : list[dict[str, Any]] | None = None, columns : list | None = None):
+    return TabularDataModel(data, columns)
+
+  def model(self, name : str) -> QSqlQueryModel | QSqlTableModel | QSqlRelationalTableModel | QSortFilterProxyModel | None:
+    if name not in self.models.keys():
       return None
 
     return self.models[name]
@@ -581,7 +711,4 @@ class DataModels:
 
     return _data
 
-dataModels = DataModels()
-
-def getDataModels():
-  return dataModels
+dataModels = Models()

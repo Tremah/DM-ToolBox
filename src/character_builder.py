@@ -7,7 +7,6 @@ from random import choice
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, QPoint, Signal
-from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import (
   QLabel,
   QPushButton,
@@ -18,47 +17,66 @@ from PySide6.QtWidgets import (
   QSizePolicy,
   QGroupBox,
   QComboBox, QPlainTextEdit, QSpacerItem, QFileDialog, QSpinBox, QTableWidget, QTableWidgetItem, QTableView, QLineEdit,
-  QHBoxLayout, QCheckBox, QHeaderView, QApplication, QStyle, QScrollArea,
-  QInputDialog, QDialog, QAbstractItemView, QToolButton, QDoubleSpinBox
+  QHBoxLayout, QCheckBox, QHeaderView, QApplication, QStyle,
+  QInputDialog, QDialog, QAbstractItemView, QToolButton, QFrame
 )
+
+from PySide6.QtGui import QKeyEvent
 
 from pypdf import PdfReader, PdfWriter
 
-from database import beginTransaction
-from src import data_models as dm
-from src import database as db
-from src import helper as hp
-from src import qt_helper as qh
-from src import qt_wrapper as qw
-from src import app_config as apc
-from src import data_access as data
+import src.data_models as dm
+import src.database as db
+import src.helper as hp
+import src.qt_helper as qh
+import src.qt_wrapper as qw
+import src.app_config as apc
+import src.external_data_access as data
 
 class CharacterBuilderWidget(QWidget):
   def __init__(self):
     super().__init__()
 
     # Fields
-    self.className = ''
+    self.className = None
     self.classData = None
     self.hpRolls = []
+    self.ac = {'naked': 9, 'armour': None, 'shield': None, 'dex_bonus': 0, 'total': None, 'armorEquipped': False, 'shieldEquipped': False}
+    self.usesMagic = False
+    self.abilities = {'attacks': [], 'spells': []}
 
     # Data Models
-    self.raceModel = dm.getDataModels().model('RACE')
-    self.classModel = dm.getDataModels().model('CLASS')
-    self.alignmentModel = dm.getDataModels().model('ALIGNMENT')
+    self.gameSystemModel = dm.dataModels.model('GAME_SYSTEM')
+    self.raceModel = dm.dataModels.model('RACE')
+    self.classModel = dm.dataModels.model('CLASS')
+    self.alignmentModel = dm.dataModels.model('ALIGNMENT')
 
     # Header Label
     _headerLabel = QLabel('Character Builder')
     _headerLabel.setObjectName('headerLabel')
 
-    # GENERAL #
+    ## SETTINGS ##
+    _gameSystemComboBoxLabel =  QLabel('Game System:')
+    self.gameSystemComboBox = QComboBox()
+    self.gameSystemComboBox.setProperty('name', 'gameSystem')
+    self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxChanged)
+    _gameSystems = data.gameSystemData.getAllGameSystem()
+
+    for _system in _gameSystems.items():
+      _data = _system[1]
+      self.gameSystemComboBox.addItem(_data['label'])
+
+    # ToDo: uncomment when more game system are implemented
+    #self.gameSystemComboBox.setCurrentIndex(-1)
+
+    ## GENERAL ##
 
     # Character name
     _nameLineEditLabel = QLabel('Name:')
     self.nameLineEdit = QLineEdit()
     self.nameLineEdit.setProperty('name', 'name')
 
-    _rollCharacterNameButton = self.makeRollToolButtonForProperty('Roll Character Name', self.handleRollCharacterNameButton)
+    _rollCharacterNameButton = self.makeRollToolButtonForProperty('Roll Character Name', self.handleRollCharacterNameButtonClicked)
 
     # Race
     _raceComboBoxLabel = QLabel('Race:')
@@ -79,7 +97,7 @@ class CharacterBuilderWidget(QWidget):
     # Level
     _levelSpinBoxLabel = QLabel('Level:')
     self.levelSpinBox = self.makeSpinBox(name='level', minValue=1, maxValue=100, currentValue=1, targetFunction=self.handleLevelSpinBoxChanged)
-    _rollLevelButton = self.makeRollToolButtonForProperty('Roll Level', self.handleRollLevelButton)
+    _rollLevelButton = self.makeRollToolButtonForProperty('Roll Level', self.handleRollLevelButtonClicked)
 
     # XP
     _xpLineEditLabel = QLabel('XP:')
@@ -98,7 +116,7 @@ class CharacterBuilderWidget(QWidget):
     _startingWealthSpinBoxLabel.setToolTip('Gold Pieces')
     self.startingWealthSpinBox = self.makeSpinBox(name='starting_wealth', minValue=0, maxValue=10000, currentValue=0)
 
-    _rollStartingWealthButton = self.makeRollToolButtonForProperty('Roll Starting Wealth', self.handleRollStartingWealthButton)
+    _rollStartingWealthButton = self.makeRollToolButtonForProperty('Roll Starting Wealth', self.handleRollStartingWealthButtonClicked)
 
     # Character title
     _titleLineEditLabel = QLabel('Title:')
@@ -123,22 +141,37 @@ class CharacterBuilderWidget(QWidget):
 
     # Character age
     _ageSpinBoxLabel = QLabel('Age:')
-    self.ageSpinBox = self.makeSpinBox(name='age', minValue=1, maxValue=99999, currentValue=1)
-    _rollCharacterAgeButton = self.makeRollToolButtonForProperty('Roll Character Age', self.handleRollCharacterAgeButton)
+    self.ageSpinBox = self.makeSpinBox(name='age', minValue=1, maxValue=99999, currentValue=20)
+    _rollCharacterAgeButton = self.makeRollToolButtonForProperty('Roll Character Age', self.handleRollCharacterAgeButtonClicked)
 
     # Character height
     _heightLineEditLabel = QLabel('Height:')
     _heightLineEditLabel.setToolTip('Feet and Inches')
     self.heightLineEdit = QLineEdit()
     self.heightLineEdit.setProperty('name', 'height')
-    _rollCharacterHeightButton = self.makeRollToolButtonForProperty('Roll Character Height', self.handleRollCharacterHeightButton)
+    _rollCharacterHeightButton = self.makeRollToolButtonForProperty('Roll Character Height', self.handleRollCharacterHeightButtonClicked)
 
     # Character weight
     _weightLineEditLabel = QLabel('Weight:')
     _weightLineEditLabel.setToolTip('Pounds')
     self.weightLineEdit = QLineEdit()
     self.weightLineEdit.setProperty('name', 'weight')
-    _rollCharacterWeightButton = self.makeRollToolButtonForProperty('Roll Character Weight', self.handleRollCharacterWeightButton)
+    _rollCharacterWeightButton = self.makeRollToolButtonForProperty('Roll Character Weight', self.handleRollCharacterWeightButtonClicked)
+
+    # Spells button
+    self.spellsButton = QPushButton('Spells')
+    self.spellsButton.clicked.connect(self.handleSpellsButtonClicked)
+    self.spellsButton.hide()
+
+    # Notes button
+    self.notesButton = QPushButton('Notes')
+    self.notesButton.clicked.connect(self.handleNotesButtonClicked)
+
+    # Button row layout
+    _buttonRowLayout = QHBoxLayout()
+    _buttonRowLayout.addWidget(self.spellsButton)
+    _buttonRowLayout.addWidget(self.notesButton)
+    _buttonRowLayout.addStretch(1)
 
     # MOVEMENT #
 
@@ -211,11 +244,11 @@ class CharacterBuilderWidget(QWidget):
 
     # Generate-all button
     _generateAllAbilityScoresButton = QPushButton('Generate All Scores')
-    _generateAllAbilityScoresButton.clicked.connect(self.handleGenerateAllAbilityScoresButton)
+    _generateAllAbilityScoresButton.clicked.connect(self.handleGenerateAllAbilityScoresButtonClicked)
 
     # Reset button
     _resetAbilityScoresButton = QPushButton('Reset Scores')
-    _resetAbilityScoresButton.clicked.connect(self.handleResetAbilityScoresButton)
+    _resetAbilityScoresButton.clicked.connect(self.handleResetAbilityScoresButtonClicked)
 
     # COMBAT #
 
@@ -264,6 +297,11 @@ class CharacterBuilderWidget(QWidget):
     _initiativeBonusLabel = QLabel('Initiative Bonus:')
     self.initiativeBonusSpinBox = QSpinBox()
     self.initiativeBonusSpinBox = self.makeSpinBox(name='initiativeBonus', minValue=-10, maxValue=10, currentValue=0)
+
+    # ABILITIES, SKILLS, WEAPONS, ETC. #
+
+    self.abilitiesRichTextEditor = qw.RichTextEditor()
+    self.abilitiesRichTextEditor.setProperty('name', 'abilities')
 
     # SAVING THROWS #
     _minSave = 1
@@ -325,6 +363,8 @@ class CharacterBuilderWidget(QWidget):
     self.languagesLineEdit = QLineEdit()
     self.languagesLineEdit.setProperty('name', 'languages')
 
+    # NPCs #
+
     _npcReactionsModifierLabel = QLabel('NPC Reactions Mod:')
     self.npcReactionsModifierSpinBox = QSpinBox()
     self.npcReactionsModifierSpinBox.setMinimum(-10)
@@ -340,7 +380,56 @@ class CharacterBuilderWidget(QWidget):
     self.retainerLoyaltySpinBox.setMinimum(2)
     self.retainerLoyaltySpinBox.setMaximum(12)
 
-    ## Sub Group boxes
+    # EQUIPMENT #
+    self.equipmentTable = QTableWidget()
+    _equipmentTableColumns = ['NAME', 'TYPE', 'CATEGORY', 'WEIGHT', 'COST', 'QUANTITY', 'AC', 'DAMAGE', 'EQUIPPED', 'ACTIONS']
+    self.equipmentTable.setColumnCount(len(_equipmentTableColumns))
+    self.equipmentTable.setFrameStyle(QFrame.Shape.NoFrame)
+    self.equipmentTable.setHorizontalHeaderLabels(_equipmentTableColumns)
+    self.equipmentTable.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+    self.equipmentTable.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
+    # Set column alignments
+    for i in range(self.equipmentTable.columnCount()):
+      _columnName = self.equipmentTable.horizontalHeaderItem(i).text()
+      if _columnName not in ('NAME', 'TYPE', 'CATEGORY'):
+        self.equipmentTable.setItemDelegateForColumn(i, qh.TableViewColumnCenterContentDelegate())
+      else:
+        self.equipmentTable.setItemDelegateForColumn(i, qh.TableViewColumnLeftContentDelegate())
+
+    self.totalEquipmentWeightLabelLabel = QLabel('Total Weight:')
+    self.totalEquipmentWeightLabel = QLabel('0 coins')
+
+    self.addEquipmentItemFromDatabaseButton = QPushButton('Add Item From Database')
+    self.addEquipmentItemFromDatabaseButton.clicked.connect(self.handleAddEquipmentItemFromDatabaseButtonClicked)
+
+    self.addNewEquipmentItemButton = QPushButton('Add New Item')
+    self.addNewEquipmentItemButton.clicked.connect(self.handleAddNewEquipmentItemButtonClicked)
+
+    self.clearEquipmentTableButton = QPushButton('Clear Table')
+    self.clearEquipmentTableButton.clicked.connect(self.handleClearEquipmentTableButtonClicked)
+
+    _equipmentButtonHelperLayout = QHBoxLayout()
+    _equipmentButtonHelperLayout.addWidget(self.addEquipmentItemFromDatabaseButton)
+    #_equipmentButtonHelperLayout.addWidget(self.addNewEquipmentItemButton)
+    _equipmentButtonHelperLayout.addWidget(self.clearEquipmentTableButton)
+    _equipmentButtonHelperLayout.addStretch()
+
+    # NOTES #
+    self.notesRichTextEditor = qw.RichTextEditor()
+    self.notesRichTextEditor.setProperty('name', 'notes')
+
+    ## GROUP BOXES ##
+
+    # Settings group box
+    self.settingsGroupBox = QGroupBox('Settings')
+    _settingsGroupBoxLayout = QGridLayout(self.settingsGroupBox)
+    _settingsGroupBoxLayout.setSpacing(20)
+    _settingsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    _settingsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+    _settingsGroupBoxLayout.addWidget(_gameSystemComboBoxLabel, 0, 0)
+    _settingsGroupBoxLayout.addWidget(self.gameSystemComboBox, 0, 1)
 
     # General Group Box
     self.generalGroupBoxLayout = QGridLayout()
@@ -379,6 +468,7 @@ class CharacterBuilderWidget(QWidget):
     self.generalGroupBoxLayout.addWidget(_weightLineEditLabel, 5, 3)
     self.generalGroupBoxLayout.addWidget(self.weightLineEdit, 5, 4)
     self.generalGroupBoxLayout.addWidget(_rollCharacterWeightButton, 5, 5)
+    self.generalGroupBoxLayout.addLayout(_buttonRowLayout, 6, 0, 1, 2)
 
     self.generalGroupBoxLayout.setColumnStretch(0, 1)
     self.generalGroupBoxLayout.setColumnStretch(1, 2)
@@ -472,30 +562,40 @@ class CharacterBuilderWidget(QWidget):
     self.combatGroupBoxLayout.addWidget(_rollHpButton, 0, 4, alignment=Qt.AlignmentFlag.AlignLeft)
     self.combatGroupBoxLayout.addWidget(_thac0SpinBoxLabel, 1, 0)
     self.combatGroupBoxLayout.addWidget(self.thac0SpinBox, 1, 1)
-    self.combatGroupBoxLayout.addWidget(_acSpinBoxLabel, 2, 0)
-    self.combatGroupBoxLayout.addWidget(self.acSpinBox, 2, 1)
-    self.combatGroupBoxLayout.addWidget(_acBonusLabelLabel, 2, 2)
-    self.combatGroupBoxLayout.addWidget(self.acBonusLabel, 2, 3)
-    self.combatGroupBoxLayout.addWidget(_unarmoredACLabelLabel, 2, 4)
-    self.combatGroupBoxLayout.addWidget(self.unarmoredACLabel, 2, 5)
-    self.combatGroupBoxLayout.addWidget(_meleeBonusLabel, 3, 0)
-    self.combatGroupBoxLayout.addWidget(self.meleeBonusSpinBox, 3, 1)
-    self.combatGroupBoxLayout.addWidget(_missileBonusLabel, 4, 0)
-    self.combatGroupBoxLayout.addWidget(self.missileBonusSpinBox, 4, 1)
-    self.combatGroupBoxLayout.addWidget(_initiativeBonusLabel, 5, 0)
-    self.combatGroupBoxLayout.addWidget(self.initiativeBonusSpinBox, 5, 1)
+    self.combatGroupBoxLayout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 2, 0)
+    self.combatGroupBoxLayout.addWidget(_acSpinBoxLabel, 3, 0)
+    self.combatGroupBoxLayout.addWidget(self.acSpinBox, 3, 1)
+    self.combatGroupBoxLayout.addWidget(_unarmoredACLabelLabel, 3, 2)
+    self.combatGroupBoxLayout.addWidget(self.unarmoredACLabel, 3, 3)
+    self.combatGroupBoxLayout.addWidget(_acBonusLabelLabel, 4, 0)
+    self.combatGroupBoxLayout.addWidget(self.acBonusLabel, 4, 1)
+    self.combatGroupBoxLayout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 5, 0)
+    self.combatGroupBoxLayout.addWidget(_meleeBonusLabel, 6, 0)
+    self.combatGroupBoxLayout.addWidget(self.meleeBonusSpinBox, 6, 1)
+    self.combatGroupBoxLayout.addWidget(_missileBonusLabel, 7, 0)
+    self.combatGroupBoxLayout.addWidget(self.missileBonusSpinBox, 7, 1)
+    self.combatGroupBoxLayout.addWidget(_initiativeBonusLabel, 8, 0)
+    self.combatGroupBoxLayout.addWidget(self.initiativeBonusSpinBox, 8, 1)
 
     self.combatGroupBoxLayout.setColumnStretch(0, 1)
     self.combatGroupBoxLayout.setColumnStretch(1, 1)
     self.combatGroupBoxLayout.setColumnStretch(2, 1)
     self.combatGroupBoxLayout.setColumnStretch(3, 1)
-    self.combatGroupBoxLayout.setColumnStretch(4, 0)
-    self.combatGroupBoxLayout.setColumnStretch(5, 1)
-    self.combatGroupBoxLayout.setColumnStretch(6, 1)
+    self.combatGroupBoxLayout.setColumnStretch(4, 1)
 
-    self.combatGroupBox = QGroupBox()
-    self.combatGroupBox.setTitle('Combat')
+    self.combatGroupBox = QGroupBox('Combat')
     self.combatGroupBox.setLayout(self.combatGroupBoxLayout)
+
+    # Abilities, Skills, Weapons group box
+    self.abilitiesSkillsWeaponsGroupBoxLayout = QHBoxLayout()
+    self.abilitiesSkillsWeaponsGroupBoxLayout.setSpacing(20)
+    self.abilitiesSkillsWeaponsGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.abilitiesSkillsWeaponsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+    self.abilitiesSkillsWeaponsGroupBoxLayout.addWidget(self.abilitiesRichTextEditor)
+
+    self.abilitiesSkillsWeaponsGroupBox = QGroupBox('Abilities, Skills, Weapons')
+    self.abilitiesSkillsWeaponsGroupBox.setLayout(self.abilitiesSkillsWeaponsGroupBoxLayout)
 
     # Saving Throw group box
     self.saveGroupBoxLayout = QGridLayout()
@@ -549,10 +649,10 @@ class CharacterBuilderWidget(QWidget):
     self.adventureSkillsGroupBox.setTitle('Adventuring Skills')
     self.adventureSkillsGroupBox.setLayout(self.adventureSkillsGroupBoxLayout)
 
-    # Trait scroll area
+    # Trait table widget
     _traitGroupBoxLayout = QGridLayout()
-    self.traitScrollArea = TraitsScrollArea(mode='view')
-    _traitGroupBoxLayout.addWidget(self.traitScrollArea, 0, 0)
+    self.traitsTableWidget = TraitsTableWidget(mode='view')
+    _traitGroupBoxLayout.addWidget(self.traitsTableWidget, 0, 0)
 
     _traitGroupBox = QGroupBox()
     _traitGroupBox.setTitle('Traits')
@@ -584,42 +684,83 @@ class CharacterBuilderWidget(QWidget):
     self.npcGroupBoxLayout.addWidget(self.npcReactionsModifierSpinBox, 0, 1)
     self.npcGroupBoxLayout.addWidget(_maxNumberOfRetainersLabel, 1, 0)
     self.npcGroupBoxLayout.addWidget(self.maxNumberOfRetainersSpinBox, 1, 1)
-    self.npcGroupBoxLayout.addWidget(_retainerLoyaltyLabel, 1, 2)
-    self.npcGroupBoxLayout.addWidget(self.retainerLoyaltySpinBox, 1, 3)
+    self.npcGroupBoxLayout.addWidget(_retainerLoyaltyLabel, 2, 0)
+    self.npcGroupBoxLayout.addWidget(self.retainerLoyaltySpinBox, 2, 1)
 
     self.npcGroupBox = QGroupBox()
     self.npcGroupBox.setTitle('NPCs and Retainers')
     self.npcGroupBox.setLayout(self.npcGroupBoxLayout)
 
+    # Equipment group box
+    self.equipmentGroupBoxLayout = QGridLayout()
+    self.equipmentGroupBoxLayout.setSpacing(20)
+    self.equipmentGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.equipmentGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+    self.equipmentGroupBoxLayout.addWidget(self.equipmentTable, 0, 0, 1, 3)
+    self.equipmentGroupBoxLayout.addWidget(self.totalEquipmentWeightLabelLabel, 1, 0)
+    self.equipmentGroupBoxLayout.addWidget(self.totalEquipmentWeightLabel, 1, 1)
+    self.equipmentGroupBoxLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 1, 2)
+    self.equipmentGroupBoxLayout.addLayout(_equipmentButtonHelperLayout, 2, 0, 1, 3)
+
+    self.equipmentGroupBox = QGroupBox()
+    self.equipmentGroupBox.setTitle('Equipment')
+    self.equipmentGroupBox.setLayout(self.equipmentGroupBoxLayout)
+
+    # Notes group box
+    self.notesGroupBoxLayout = QGridLayout()
+    self.notesGroupBoxLayout.setSpacing(20)
+    self.notesGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.notesGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    self.notesGroupBoxLayout.addWidget(self.notesRichTextEditor, 0, 0)
+
+    self.notesGroupBox = QGroupBox()
+    self.notesGroupBox.setTitle('Notes')
+    self.notesGroupBox.setLayout(self.notesGroupBoxLayout)
+
+    # Treasure group box
+    self.treasureGroupBoxLayout = QGridLayout()
+    self.treasureGroupBoxLayout.setSpacing(20)
+    self.treasureGroupBoxLayout.setContentsMargins(10, 20, 10, 20)
+    self.treasureGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+    self.treasureGroupBox = QGroupBox()
+    self.treasureGroupBox.setTitle('Treasure')
+    self.treasureGroupBox.setLayout(self.treasureGroupBoxLayout)
+
+    self.treasureRichTextEditor = qw.RichTextEditor()
+    self.treasureRichTextEditor.setProperty('name', 'treasure')
+    self.treasureGroupBoxLayout.addWidget(self.treasureRichTextEditor, 0, 0)
+
     ## Buttons
 
     # Generate Random Character
     self.generateRandomCharacterButton = QPushButton("Generate Random Character")
-    self.generateRandomCharacterButton.clicked.connect(self.handleGenerateRandomCharacterButton)
+    self.generateRandomCharacterButton.clicked.connect(self.handleGenerateRandomCharacterButtonClicked)
 
     # Load from database
     self.loadFromDatabaseButton = QPushButton("Load From Database")
-    self.loadFromDatabaseButton.clicked.connect(self.handleLoadFromDatabaseButton)
+    self.loadFromDatabaseButton.clicked.connect(self.handleLoadFromDatabaseButtonClicked)
 
     # Save to database
     self.saveToDatabaseButton = QPushButton("Save To Database")
-    self.saveToDatabaseButton.clicked.connect(self.handleSaveToDatabaseButton)
+    self.saveToDatabaseButton.clicked.connect(self.handleSaveToDatabaseButtonClicked)
 
     # Delete from database
     self.deleteFromDatabaseButton = QPushButton("Delete From Database")
-    self.deleteFromDatabaseButton.clicked.connect(self.handleDeleteFromDatabaseButton)
+    self.deleteFromDatabaseButton.clicked.connect(self.handleDeleteFromDatabaseButtonClicked)
 
     # Export to file
     self.exportToFileButton = QPushButton("Export To File")
-    self.exportToFileButton.clicked.connect(self.handleExportToFileButton)
+    self.exportToFileButton.clicked.connect(self.handleExportToFileButtonClicked)
 
     # Export to character sheet
     self.exportToCharacterSheetPdfButton = QPushButton("Export To Character Sheet")
-    self.exportToCharacterSheetPdfButton.clicked.connect(self.handleExportToCharacterSheetPdfButton)
+    self.exportToCharacterSheetPdfButton.clicked.connect(self.handleExportToCharacterSheetPdfButtonClicked)
 
     # Clear
     self.clearButton = QPushButton("Clear")
-    self.clearButton.clicked.connect(self.handleClearButton)
+    self.clearButton.clicked.connect(self.handleClearButtonClicked)
 
     # Buttons helper layout
     _buttonHelperLayout = QHBoxLayout()
@@ -633,7 +774,7 @@ class CharacterBuilderWidget(QWidget):
     _buttonHelperLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum))
 
     # Load character widget
-    self.loadCharacterWidget = LoadDialogWidget(dataModelName='CHARACTER')
+    self.loadCharacterWidget = LoadClassFromDatabaseDialogWidget(dataModelName='CHARACTER')
     self.loadCharacterWidget.setWindowTitle('Load Character From Database')
     self.loadCharacterWidget.characterSelectedForLoad.connect(self.loadCharacterFromDatabase)
 
@@ -645,25 +786,52 @@ class CharacterBuilderWidget(QWidget):
     _y = _pos.y() + (_size.height() - self.loadCharacterWidget.height()) // 2
     self.loadCharacterWidget.move(QPoint(_x, _y))
 
+    # Edit equipment widget
+    self.editCharacterEquipmentWidget = EditCharacterEquipmentDialogWidget()
+    self.editCharacterEquipmentWidget.setWindowTitle('Edit Character Equipment')
+    self.editCharacterEquipmentWidget.itemSelectedForAdd.connect(self.addItemToEquipmentTable)
+
+    # Move edit equipment widget to center of the main window
+
+    _x = _pos.x() + (_size.width() - self.editCharacterEquipmentWidget.width()) // 2
+    _y = _pos.y() + (_size.height() - self.editCharacterEquipmentWidget.height()) // 2
+    self.editCharacterEquipmentWidget.move(QPoint(_x, _y))
+
+    # Spells widget
+    self.editCharacterSpellsWidget = EditCharacterSpellsDialogWidget()
+    self.editCharacterSpellsWidget.setWindowTitle('Spells')
+    self.editCharacterSpellsWidget.spellsSelectedForAdd.connect(self.addSpells)
+
+    _x = _pos.x() + (_size.width() - self.editCharacterSpellsWidget.width()) // 2
+    _y = _pos.y() + (_size.height() - self.editCharacterSpellsWidget.height()) // 2
+    self.editCharacterSpellsWidget.move(QPoint(_x, _y))
+
     ## Finish setup
     _mainGridLayout = QGridLayout()
     _mainGridLayout.setSpacing(15)
-    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     _mainGridLayout.setContentsMargins(15, 15, 15, 15)
-    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _mainGridLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
     _mainGridLayout.addWidget(_headerLabel, 0, 0)
-    _mainGridLayout.addWidget(self.generalGroupBox, 1, 0)
-    _mainGridLayout.addWidget(self.abilitiesGroupBox, 1, 1)
-    _mainGridLayout.addWidget(self.movementGroupBox, 1, 2)
-    _mainGridLayout.addWidget(_traitGroupBox, 1, 3, 2, 1)
-    _mainGridLayout.addWidget(self.combatGroupBox, 2, 0)
-    _mainGridLayout.addWidget(self.saveGroupBox, 2, 1)
-    _mainGridLayout.addWidget(self.adventureSkillsGroupBox, 2, 2)
-    _mainGridLayout.addWidget(self.languagesGroupBox, 3, 0)
-    _mainGridLayout.addWidget(self.npcGroupBox, 3, 1)
-    _mainGridLayout.addLayout(_buttonHelperLayout, 4, 0)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum), 4, 3)
-    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 5, 0)
+    _mainGridLayout.addWidget(self.settingsGroupBox, 1, 0, 1, 5)
+    _mainGridLayout.addWidget(self.generalGroupBox, 2, 0, 1, 2)
+    _mainGridLayout.addWidget(self.abilitiesGroupBox, 2, 2)
+    _mainGridLayout.addWidget(self.movementGroupBox, 2, 3)
+    _mainGridLayout.addWidget(_traitGroupBox, 2, 4, 2, 1)
+    _mainGridLayout.addWidget(self.combatGroupBox, 3, 0, 2, 1)
+    _mainGridLayout.addWidget(self.abilitiesSkillsWeaponsGroupBox, 3, 1, 2, 1)
+    _mainGridLayout.addWidget(self.saveGroupBox, 3, 2)
+    _mainGridLayout.addWidget(self.adventureSkillsGroupBox, 3, 3)
+    _mainGridLayout.addWidget(self.languagesGroupBox, 4, 2, 1, 2)
+    _mainGridLayout.addWidget(self.npcGroupBox, 4, 4)
+    _mainGridLayout.addWidget(self.equipmentGroupBox, 5, 0, 1, 2)
+    _mainGridLayout.addWidget(self.notesGroupBox, 5, 2, 1, 2)
+    _mainGridLayout.addWidget(self.treasureGroupBox, 5, 4)
+    _mainGridLayout.addLayout(_buttonHelperLayout, 6, 0, 1, 3)
+    _mainGridLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 7, 0)
+
+    _mainGridLayout.setColumnStretch(0, 3)
+    _mainGridLayout.setColumnStretch(1, 4)
+    _mainGridLayout.setColumnStretch(4, 3)
 
     self.setLayout(_mainGridLayout)
     self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
@@ -676,6 +844,58 @@ class CharacterBuilderWidget(QWidget):
     self.handleDexteritySpinBoxValueChanged()
     self.handleConstitutionSpinBoxValueChanged()
     self.handleCharismaSpinBoxValueChanged()
+
+  def addItemToEquipmentTable(self, items : list):
+    _rowCount = self.equipmentTable.rowCount()
+    for _item in items:
+      _rowCount += 1
+      self.equipmentTable.setRowCount(_rowCount)
+      for i in range(self.equipmentTable.columnCount()):
+        _columnName = self.equipmentTable.horizontalHeaderItem(i).text()
+
+        if _columnName == 'EQUIPPED':
+          _checkBox = QCheckBox()
+          _checkBox.setProperty('row', _rowCount - 1)
+          _checkBox.setProperty('name', 'equippedCheckBox')
+          _checkBox.checkStateChanged.connect(self.handleItemEquippedCheckBoxStateChanged)
+
+          _container = QWidget()
+          _layout = QHBoxLayout()
+          _layout.setContentsMargins(0, 0, 0, 0)
+          _layout.addWidget(_checkBox)
+          _layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+          _container.setLayout(_layout)
+          self.equipmentTable.setCellWidget(_rowCount -1, i, _container)
+        elif _columnName == 'ACTIONS':
+          _buttonContainer = QWidget()
+          _buttonContainerLayout = QHBoxLayout(_buttonContainer)
+          _buttonContainerLayout.setSpacing(5)
+          _buttonContainerLayout.setContentsMargins(2, 2, 2, 2)
+
+          _deleteButton = QToolButton()
+          _deleteButton.setFont(apc.Icons.font())
+          _deleteButton.setText(apc.Icons.text('trash'))
+          _deleteButton.setProperty('name', f'delete_{_rowCount - 1}')
+          _deleteButton.clicked.connect(self.handleItemDeleteButtonClicked)
+          _buttonContainerLayout.addWidget(_deleteButton)
+          self.equipmentTable.setCellWidget(_rowCount - 1, i, _buttonContainer)
+        else:
+          self.equipmentTable.setItem(_rowCount - 1, i, QTableWidgetItem(str(_item.get(_columnName.lower(), ''))))
+
+    self.calculateTotalEquipmentWeight()
+
+  def addSpells(self, spells : list):
+    self.abilities['spells'] = []
+    for _spell in spells:
+      _level = int(_spell['LEVEL'])
+      _spell = _spell['SPELL']
+      _listLength = len(self.abilities['spells'])
+      if _listLength < _level:
+        self.abilities['spells'].extend([] for _ in range(_level - _listLength))
+
+      self.abilities['spells'][_level - 1].append(_spell)
+
+    self.refreshAbilitiesRichTextEditor()
 
   def applyClassModifiers(self):
     _modifiers = data.getGameSystemData().getClassProperty('ose', self.className, 'character_modifiers')
@@ -771,6 +991,33 @@ class CharacterBuilderWidget(QWidget):
 
     return _chance
 
+  def calculateTotalEquipmentWeight(self):
+    _totalWeight = 0
+    _weightColumnId = qh.getColumnIdFromTableWidget(self.equipmentTable, 'WEIGHT')
+    _quantityColumnId = qh.getColumnIdFromTableWidget(self.equipmentTable, 'QUANTITY')
+    _typeColumnId = qh.getColumnIdFromTableWidget(self.equipmentTable, 'TYPE')
+
+    if _weightColumnId is None or _quantityColumnId is None or _typeColumnId is None:
+      logging.error('WEIGHT, QUANTITY or TYPE column not found while calculating total equipment weight')
+      return
+
+    for i in range(self.equipmentTable.rowCount()):
+      _weightText = self.equipmentTable.item(i, _weightColumnId).text()
+      _weight = int(_weightText) if _weightText else 0
+      _quantityText = self.equipmentTable.item(i, _quantityColumnId).text()
+      _quantity = int(_quantityText) if _quantityText else 0
+
+      # Ammunition's and equipment's quantity displays the number of units of that specific item
+      # while their weight represents the weight of the entire item, not one single unit
+      # So we have to divide the weight by the quantity to get the weight of one single unit
+      # to then multiply it by the quantity to get the total weight of that specific item
+      if self.equipmentTable.item(i, _typeColumnId).text() in ('Ammunition', 'Equipment'):
+        _quantity = math.floor(_weight / _quantity)
+
+      _totalWeight += _weight * _quantity
+
+    self.totalEquipmentWeightLabel.setText(f'{str(_totalWeight)} coins')
+
   def calculateUnarmoredAc(self):
     return 9 - self.calculateAbilityModifier(self.dexteritySpinBox.value())
 
@@ -843,7 +1090,7 @@ class CharacterBuilderWidget(QWidget):
       _finalResults.append(_fulfilledTotal)
 
     _xpBonusValues = list(_xpBonus.keys())
-    _finalBonus = ''
+    _finalBonus = 'None'
     for i in range(len(_finalResults)):
       if _finalResults[i]:
         _finalBonus = _xpBonusValues[i]
@@ -869,6 +1116,13 @@ class CharacterBuilderWidget(QWidget):
 
     return None
 
+  def handleAddEquipmentItemFromDatabaseButtonClicked(self):
+    self.editCharacterEquipmentWidget.show()
+    self.editCharacterEquipmentWidget.raise_()
+    self.editCharacterEquipmentWidget.activateWindow()
+
+  def handleAddNewEquipmentItemButtonClicked(self):
+    pass
 
   def handleCharismaSpinBoxValueChanged(self):
     _charismaScore = self.charismaSpinBox.value()
@@ -913,6 +1167,7 @@ class CharacterBuilderWidget(QWidget):
 
     self.maxNumberOfRetainersSpinBox.setValue(_maxNumberOfRetainers)
     self.retainerLoyaltySpinBox.setValue(_retainerLoyalty)
+    self.calculateXpBonus()
 
   def handleClassComboBoxChanged(self):
     # Gather class data
@@ -929,14 +1184,19 @@ class CharacterBuilderWidget(QWidget):
       return
 
     self.classData = _classData
+    self.usesMagic = self.classData['uses_magic']
 
-    self.traitScrollArea.addTraitsFromJson(self.classData['traits'])
-    self.updateUiWithClassData()
+    self.traitsTableWidget.addTraitsFromJson(self.classData['traits'])
+    self.updateClassBasedUiParts()
+    self.calculateXpBonus()
 
-  def handleClearButton(self):
+  def handleClearButtonClicked(self):
+    self.className = None
+    self.classData = None
+
     self.classComboBox.setCurrentIndex(-1)
     self.nameLineEdit.clear()
-    self.xpLineEdit.clear()
+    self.xpLineEdit.setText('0')
     self.xpBonusLineEdit.setText('None')
     self.startingWealthSpinBox.setValue(self.startingWealthSpinBox.minimum())
     self.languagesLineEdit.clear()
@@ -944,13 +1204,17 @@ class CharacterBuilderWidget(QWidget):
     self.alignmentComboBox.setCurrentIndex(0)
     self.heightLineEdit.clear()
     self.weightLineEdit.clear()
+    self.ageSpinBox.setValue(20)
 
     self.resetAbilityScores()
 
     self.hdSpinBox.setValue(self.hdSpinBox.minimum())
+    self.hdSpinBoxLabel.setText('HD:')
     self.hpLineEdit.setText('')
     self.thac0SpinBox.setValue(19)
     self.acSpinBox.setValue(9)
+
+    self.abilitiesRichTextEditor.clear()
 
     self.savePoisonDeathSpinBox.setValue(self.savePoisonDeathSpinBox.maximum())
     self.saveMagicWandsSpinBox.setValue(self.saveMagicWandsSpinBox.maximum())
@@ -966,14 +1230,22 @@ class CharacterBuilderWidget(QWidget):
     self.findSecretDoorSkillSpinBox.setValue(self.findSecretDoorSkillSpinBox.minimum())
 
     self.initiativeBonusSpinBox.setValue(0)
-    self.hdSpinBoxLabel.setText('HD:')
+
+    self.equipmentTable.setRowCount(0)
+    self.traitsTableWidget.setRowCount(0)
+
+  def handleClearEquipmentTableButtonClicked(self):
+    self.equipmentTable.setRowCount(0)
+    self.calculateTotalEquipmentWeight()
+    self.updateAC()
 
   def handleConstitutionSpinBoxValueChanged(self):
     _constitutionScore = self.constitutionSpinBox.value()
     self.constitutionModSpinBox.setValue(self.calculateAbilityModifier(_constitutionScore))
+    self.calculateXpBonus()
 
-  def handleDeleteFromDatabaseButton(self):
-    _characterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('Name',), filterValues=(self.nameLineEdit.text(),))
+  def handleDeleteFromDatabaseButtonClicked(self):
+    _characterId = dm.dataModels.getDataForModelIndex(dm.dataModels.model('CHARACTER'), columnName='ID', filterColumns=('NAME',), filterValues=(self.nameLineEdit.text(),))
     if not _characterId:
       logging.warning(f'The character "{self.nameLineEdit.text()}" cannot be found in the database.')
       return
@@ -1000,8 +1272,8 @@ class CharacterBuilderWidget(QWidget):
 
       if _sqlRc == 0:
         logging.info(f'Character "{self.nameLineEdit.text()}" was successfully deleted from the database.')
-        dm.getDataModels().model('CHARACTER').select()
-        dm.getDataModels().model('CHARACTER_X_CHARACTER_PROPERTY').select()
+        dm.dataModels.model('CHARACTER').select()
+        dm.dataModels.model('CHARACTER_X_CHARACTER_PROPERTY').select()
 
   def handleDexterityModSpinBoxValueChanged(self):
     self.updateAC()
@@ -1012,7 +1284,9 @@ class CharacterBuilderWidget(QWidget):
     self.dexterityModSpinBox.setValue(self.calculateAbilityModifier(_dexScore))
     self.initiativeBonusSpinBox.setValue(self.calculateInitiativeModifier())
 
-  def handleExportToCharacterSheetPdfButton(self):
+    self.calculateXpBonus()
+
+  def handleExportToCharacterSheetPdfButtonClicked(self):
     _fileNames = hp.makeFileDialog(acceptedFileExtensions='pdf files (*.pdf)', multipleFiles=False, acceptMode=QFileDialog.AcceptMode.AcceptSave)
     if not _fileNames:
       logging.error('No file selected for export')
@@ -1030,9 +1304,7 @@ class CharacterBuilderWidget(QWidget):
     _levelNormalized = self.levelSpinBox.value() - 1
     _thac0 = int(_levelProgression[_levelNormalized]['thac0'].split(' ')[0])
 
-
-
-
+    _literacy = '/Yes' if self.intelligenceSpinBox.value() >= 6 else '/Off'
 
     _characterDataToPdfMapping = {
       # General
@@ -1101,10 +1373,10 @@ class CharacterBuilderWidget(QWidget):
       'Find Secret Door': _characterData['skill_find_secret_door'],
 
       # Abilities, Skills, Weapons
-      'Abilities, Skills, Weapons': '',
+      'Abilities, Skills, Weapons': _characterData['attacks'],
       # Languages
       'Languages': _characterData['languages'],
-      'Literacy': '/Yes',
+      'Literacy': _literacy,
       # Equipment
       'Equipment': '',
       # Weapons and Armour
@@ -1114,7 +1386,7 @@ class CharacterBuilderWidget(QWidget):
       # Treasure
       'Treasure': '',
       # Other Notes
-      'Notes': '',
+      'Notes': self.notesRichTextEditor.toPlainText(),
 
       # Coins
       'PP': '',
@@ -1134,8 +1406,6 @@ class CharacterBuilderWidget(QWidget):
       'Total Encumbrance': ''
     }
 
-
-
     _pdfReader = PdfReader(apc.ROOT_INPUT_PATH / 'rules' / 'ose' / 'character_sheet.pdf')
     _fields = _pdfReader.get_fields()
 
@@ -1144,12 +1414,19 @@ class CharacterBuilderWidget(QWidget):
 
     for _key in _characterDataToPdfMapping:
       _pageNumber = _pdfReader.get_pages_showing_field(_fields[_key])[0].page_number
-      _pdfWriter.update_page_form_field_values(_pdfWriter.pages[_pageNumber], {f'{_key}': _characterDataToPdfMapping[_key]}, auto_regenerate=False) #, flatten=True)
+
+      # Reduce font-size for some fields so that more content can be displayed
+      if _key in ('Notes', 'Equipment', 'Weapons and Armour', 'Magic Items', 'Treasure', 'Abilities, Skills, Weapons'):
+        _value = (_characterDataToPdfMapping[_key], '/Helvetica', 8)
+      else:
+        _value = _characterDataToPdfMapping[_key]
+
+      _pdfWriter.update_page_form_field_values(_pdfWriter.pages[_pageNumber], {f'{_key}': _value}, auto_regenerate=False) #, flatten=True)
       #_pdfWriter.remove_annotations(subtypes='/Widget')
 
     _pdfWriter.write(_filePath)
 
-  def handleExportToFileButton(self):
+  def handleExportToFileButtonClicked(self):
     _fileDialogNameFilter = [
       "All Supported Files (*.yaml *.yml *.json *.csv)",
       "yaml files (*.yaml *.yml)",
@@ -1179,8 +1456,11 @@ class CharacterBuilderWidget(QWidget):
     else:
       logging.error(f'Unsupported file extension "{_extLower}" for export')
 
+  def handleGameSystemComboBoxChanged(self):
+    _currentText = self.gameSystemComboBox.currentText()
 
-  def handleGenerateAllAbilityScoresButton(self):
+
+  def handleGenerateAllAbilityScoresButtonClicked(self):
     self.handleRollAbilityScoreButtonClicked('STR')
     self.handleRollAbilityScoreButtonClicked('INT')
     self.handleRollAbilityScoreButtonClicked('WIS')
@@ -1188,10 +1468,13 @@ class CharacterBuilderWidget(QWidget):
     self.handleRollAbilityScoreButtonClicked('CON')
     self.handleRollAbilityScoreButtonClicked('CHA')
 
-  def handleGenerateRandomCharacterButton(self):
+  def handleGenerateRandomCharacterButtonClicked(self):
     # Name
     if not self.className:
-      _classes = [_c.get('name', None) for _c in data.getGameSystemData().getAllClassesForGameSystem('ose').values()]
+      _classModel = data.getGameSystemData().getAllClassesForGameSystem('ose')
+      _data = _classModel.getData()
+
+      _classes = [_c.get('name', None) for _c in _classModel.getData()]
       self.className = choice(_classes)
       self.classComboBox.setCurrentText(self.className)
       logging.info(f'Rolled class "{self.className}"')
@@ -1199,9 +1482,9 @@ class CharacterBuilderWidget(QWidget):
     _race = self.getRaceFromClass()
     logging.info(f'Determined race "{_race}"')
 
-    _raceId = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='ID', filterColumns=('NAME',), filterValues=(_race,))
-    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
-    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
+    _raceId = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='ID', filterColumns=('NAME',), filterValues=(_race,))
+    _firstNames = dm.dataModels.getDataForModelColumn(model=dm.dataModels.model('CREATURE_NAME'), columnName='FIRST_NAME', filterColumn='RACE', filterValue=_raceId)
+    _lastNames = dm.dataModels.getDataForModelColumn(model=dm.dataModels.model('CREATURE_NAME'), columnName='LAST_NAME', filterColumn='RACE', filterValue=_raceId)
 
     _fullNames = []
     for i in range(len(_firstNames)):
@@ -1263,15 +1546,15 @@ class CharacterBuilderWidget(QWidget):
     logging.info(f'Determined AC bonus of {self.acBonusLabel.text()}')
 
     # Weight
-    self.handleRollCharacterWeightButton()
+    self.handleRollCharacterWeightButtonClicked()
     logging.info(f'Rolled weight of {self.weightLineEdit.text()} lbs')
 
     # Height
-    self.handleRollCharacterHeightButton()
+    self.handleRollCharacterHeightButtonClicked()
     logging.info(f'Rolled height of {self.heightLineEdit.text()}')
 
     # Starting wealth
-    self.handleRollStartingWealthButton()
+    self.handleRollStartingWealthButtonClicked()
     logging.info(f'Rolled starting wealth of {self.startingWealthSpinBox.value()} gp')
 
     # Languages
@@ -1315,10 +1598,58 @@ class CharacterBuilderWidget(QWidget):
       _literacy = 'Literate'
     self.literacyLineEdit.setText(_literacy)
 
-  def handleLevelSpinBoxChanged(self):
-    self.updateUiWithClassData()
+    self.calculateXpBonus()
 
-  def handleLoadFromDatabaseButton(self):
+  def handleItemEquippedCheckBoxStateChanged(self):
+    _checkBoxModifiedItem = self.sender()
+    # Skip if the checkbox was unchecked
+    if _checkBoxModifiedItem.isChecked():
+      _row = _checkBoxModifiedItem.property('row')
+
+      _itemTypeModifiedItem = qh.getDataForTableWidgetCell(self.equipmentTable, _row, 'TYPE')
+      if _itemTypeModifiedItem not in ('Armour', 'Weapon'):
+        return
+
+      _categoryModifiedItem = qh.getDataForTableWidgetCell(self.equipmentTable, _row, 'CATEGORY')
+      _equippedColumnId = qh.getColumnIdFromTableWidget(self.equipmentTable, 'EQUIPPED')
+      _itemCategoriesInTable = qh.getDataForTableWidgetColumn(self.equipmentTable, 'CATEGORY')
+
+      if _itemTypeModifiedItem == 'Armour':
+        for i in range(len(_itemCategoriesInTable)):
+          if i == _row:
+            continue
+
+          _category = _itemCategoriesInTable[i]
+          _checkBox = qh.findChildByProperty(self.equipmentTable.cellWidget(i, _equippedColumnId), QCheckBox, 'name', 'equippedCheckBox')
+
+          if ((_categoryModifiedItem in ('Light Armour', 'Heavy Armour') and _category in ('Light Armour', 'Heavy Armour')) or
+              (_categoryModifiedItem == 'Shield' and _category == 'Shield') or
+              (_categoryModifiedItem == 'Helmet' and _category == 'Helmet')):
+
+            _checkBox.setChecked(False)
+
+    self.updateAC()
+    self.updateAttacks()
+
+  def handleItemDeleteButtonClicked(self):
+    _sender = self.sender()
+    #_index  = self.equipmentTable.indexAt(self.sender().pos())
+    _pos  = _sender.mapTo(self.equipmentTable.viewport(), QPoint(0, 0))
+    _index = self.equipmentTable.indexAt(_pos)
+
+    _row = _index.row()
+
+    _data = qh.getDataForTableWidgetRow(self.equipmentTable, _row)
+    self.equipmentTable.removeRow(_row)
+
+    self.calculateTotalEquipmentWeight()
+    self.updateAC()
+    self.updateAttacks()
+
+  def handleLevelSpinBoxChanged(self):
+    self.updateClassBasedUiParts()
+
+  def handleLoadFromDatabaseButtonClicked(self):
     self.loadCharacterWidget.show()
     self.loadCharacterWidget.raise_()
     self.loadCharacterWidget.activateWindow()
@@ -1343,7 +1674,10 @@ class CharacterBuilderWidget(QWidget):
     self.movementOverlandLabel.setText(f'{_overland}')
     self.movementEncounterLabel.setText(f'{_encounter}')
 
-  def handleResetAbilityScoresButton(self):
+  def handleNotesButtonClicked(self):
+    pass
+
+  def handleResetAbilityScoresButtonClicked(self):
     self.resetAbilityScores()
 
   def handleRollAbilityScoreButtonClicked(self, scoreName : str):
@@ -1370,33 +1704,33 @@ class CharacterBuilderWidget(QWidget):
       case _:
         pass
 
-  def handleRollCharacterAgeButton(self):
+  def handleRollCharacterAgeButtonClicked(self):
     if not self.className or not self.getRaceFromClass():
       logging.error('Rolling for a character\'s age requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character age.')
       return
 
     _race = self.getRaceFromClass()
 
-    _ageMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='AGE_MIN', filterColumns=('NAME',), filterValues=(_race,))
-    _ageMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='AGE_MAX', filterColumns=('NAME',), filterValues=(_race,))
+    _ageMin = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='AGE_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _ageMax = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='AGE_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _age = choice(range(_ageMin, _ageMax + 1))
     self.ageSpinBox.setValue(_age)
 
-  def handleRollCharacterNameButton(self) -> str | None:
+  def handleRollCharacterNameButtonClicked(self) -> str | None:
     if not self.className or not self.getRaceFromClass():
       logging.error('Rolling for a character\'s name requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating a character name.')
       return
 
-    _firstNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='FIRST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
-    _lastNames = dm.getDataModels().getDataForModelColumn(modelName='CREATURE_NAME', columnName='LAST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
+    _firstNames = dm.dataModels.getDataForModelColumn(model=dm.dataModels.model('CREATURE_NAME'), columnName='FIRST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
+    _lastNames = dm.dataModels.getDataForModelColumn(model=dm.dataModels.model('CREATURE_NAME'), columnName='LAST_NAME', filterColumn='NAME', filterValue=self.getRaceFromClass())
 
     _firstName = choice(_firstNames) if len(_firstNames) > 0 else 'John'
     _lastName = choice(_lastNames) if len(_lastNames) > 0 else 'Doe'
 
     self.nameLineEdit.setText(f'{_firstName} {_lastName}')
 
-  def handleRollCharacterHeightButton(self):
+  def handleRollCharacterHeightButtonClicked(self):
     if not self.className or not self.getRaceFromClass():
       logging.error('Rolling for a character\'s height requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character height.')
       return
@@ -1404,8 +1738,8 @@ class CharacterBuilderWidget(QWidget):
     _race = self.getRaceFromClass()
 
     # Stored in kilogram
-    _heightMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
-    _heightMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='HEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
+    _heightMin = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='HEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _heightMax = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='HEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _height = choice(range(_heightMin, _heightMax + 1))
 
@@ -1416,7 +1750,7 @@ class CharacterBuilderWidget(QWidget):
 
     self.heightLineEdit.setText(f'{_feet}\' {_inches}\"')
 
-  def handleRollCharacterWeightButton(self):
+  def handleRollCharacterWeightButtonClicked(self):
     if not self.className or not self.getRaceFromClass():
       logging.error('Rolling for a character\'s weight requires a class to be selected! Any class except "Dwarf", "Elf" and "Halfling" are considered to be human when generating character weight.')
       return
@@ -1424,8 +1758,8 @@ class CharacterBuilderWidget(QWidget):
     _race = self.getRaceFromClass()
 
     # Stored in centimeter
-    _weightMin = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
-    _weightMax = dm.getDataModels().getDataForModelIndex(modelName='RACE', columnName='WEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
+    _weightMin = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='WEIGHT_MIN', filterColumns=('NAME',), filterValues=(_race,))
+    _weightMax = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('RACE'), columnName='WEIGHT_MAX', filterColumns=('NAME',), filterValues=(_race,))
 
     _weight = choice(range(_weightMin, _weightMax + 1))
 
@@ -1488,7 +1822,7 @@ class CharacterBuilderWidget(QWidget):
 
     logging.info(f'Rolled {_sum} hit points in total.')
 
-  def handleRollLevelButton(self):
+  def handleRollLevelButtonClicked(self):
     if not self.className:
       logging.error('Rolling a character\'s level requires a class to be selected!')
       return
@@ -1499,11 +1833,11 @@ class CharacterBuilderWidget(QWidget):
 
     self.levelSpinBox.setValue(choice(range(1, _maxLevel + 1)))
 
-  def handleRollStartingWealthButton(self):
+  def handleRollStartingWealthButtonClicked(self):
     _startingWealth = hp.rollDice(3, 6) * 10
     self.startingWealthSpinBox.setValue(_startingWealth)
 
-  def handleSaveToDatabaseButton(self):
+  def handleSaveToDatabaseButtonClicked(self):
     # ToDo: Make dynamic when other game systems are implemented
 
     _characterName = self.nameLineEdit.text()
@@ -1512,7 +1846,7 @@ class CharacterBuilderWidget(QWidget):
       return
 
     # Check if character already exists
-    _characterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
+    _characterId = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('CHARACTER'), columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
 
     db.beginTransaction()
     _sqlRc = 0
@@ -1541,28 +1875,34 @@ class CharacterBuilderWidget(QWidget):
 
     # Collect character property data from UI
     _characterData = {}
-    for _property in _characterProperties:
-      _widget = qh.findChildByProperty(self, QWidget, 'name', _property)
-      if _widget:
-        if type(_widget) == QLineEdit:
-          _characterData[_property] = _widget.text()
-        elif type(_widget) == QSpinBox:
-          _characterData[_property] = _widget.value()
-        elif type(_widget) == QComboBox:
-          _characterData[_property] = _widget.currentText()
+    _characterData = self.serializeCharacterToDict()
 
-    # Adjust some values
+    # for _property in _characterProperties:
+    #   _widget = qh.findChildByProperty(self, QWidget, 'name', _property)
+    #   if _widget:
+    #     if type(_widget) == QLineEdit:
+    #       _characterData[_property] = _widget.text()
+    #     elif type(_widget) == QPlainTextEdit:
+    #       _characterData[_property] = _widget.toPlainText()
+    #     elif type(_widget) == QSpinBox:
+    #       _characterData[_property] = _widget.value()
+    #     elif type(_widget) == QComboBox:
+    #       _characterData[_property] = _widget.currentText()
+
+
+
+    # Adjust some of the user data
     _characterData['sex'] = _characterData['sex'][:1]
 
     # Insert general character data
     _columns = 'GAME_SYSTEM, NAME, SEX, AGE, HEIGHT, WEIGHT'
-    _args = ('ose', _characterData['name'], _characterData['sex'], int(_characterData['age']), _characterData['height'], int(_characterData['weight']))
+    _args = ('ose', _characterData['name'], _characterData['sex'], int(_characterData['age']), _characterData['height'], _characterData['weight'])
     _sqlRc = max(db.insert(f'insert into CHARACTER({_columns}) values(?, ?, ?, ?, ?, ?)', _args), _sqlRc)
     _newCharacterId = -1
     if _sqlRc == 0:
       # Refresh model to retrieve new character id
-      dm.getDataModels().model('CHARACTER').select()
-      _newCharacterId = dm.getDataModels().getDataForModelIndex(modelName='CHARACTER', columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
+      dm.dataModels.model('CHARACTER').select()
+      _newCharacterId = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('CHARACTER'), columnName='ID', filterColumns=('NAME',), filterValues=(_characterName,))
 
     # Insert game system-specific data
     _columns = 'CHARACTER, PROPERTY, VALUE'
@@ -1578,11 +1918,17 @@ class CharacterBuilderWidget(QWidget):
 
     if _sqlRc == 0:
       db.endTransaction()
-      dm.getDataModels().model('CHARACTER').select()
-      dm.getDataModels().model('CHARACTER_X_CHARACTER_PROPERTY').select()
+      dm.dataModels.model('CHARACTER').select()
+      dm.dataModels.model('CHARACTER_X_CHARACTER_PROPERTY').select()
       logging.info(f'Character "{_characterName}" was successfully saved to database.')
     else:
       db.rollbackChanges()
+
+  def handleSpellsButtonClicked(self):
+    self.editCharacterSpellsWidget.updateUiWithClassData(self.className)
+    self.editCharacterSpellsWidget.show()
+    self.editCharacterSpellsWidget.raise_()
+    self.editCharacterSpellsWidget.activateWindow()
 
   def handleStrengthModSpinBoxValueChanged(self):
     self.meleeBonusSpinBox.setValue(self.strengthModSpinBox.value())
@@ -1591,16 +1937,18 @@ class CharacterBuilderWidget(QWidget):
     _strengthScore = self.strengthSpinBox.value()
     self.strengthModSpinBox.setValue(self.calculateAbilityModifier(_strengthScore))
     self.openStuckDoorSkillSpinBox.setValue(self.calculateOpenStuckDoorChance())
+    self.calculateXpBonus()
 
   def handleWisdomSpinBoxValueChanged(self):
     _wisdomScore = self.wisdomSpinBox.value()
     self.wisdomModSpinBox.setValue(self.calculateAbilityModifier(_wisdomScore))
     self.wisdomModifierToSaveVsMagicSpinBox.setValue(self.calculateWisdomMagicSavesModifier())
+    self.calculateXpBonus()
 
   def loadCharacterFromDatabase(self, characterId : int):
     # ToDo: make dynamic when other game systems are implemented
-    _generalCharacterData = dm.getDataModels().getDataForModelColumns(modelName='CHARACTER', columns = ['NAME', 'AGE', 'SEX', 'HEIGHT', 'WEIGHT'], filterColumn='ID', filterValue=characterId)
-    _systemSpecificCharacterData = dm.getDataModels().getDataForModelColumns(modelName='CHARACTER_X_CHARACTER_PROPERTY', columns = ['PROPERTY', 'VALUE'], filterColumn='CHARACTER', filterValue=characterId)
+    _generalCharacterData = dm.dataModels.getDataForModelColumns(model=dm.dataModels.model('CHARACTER'), columns = ['NAME', 'AGE', 'SEX', 'HEIGHT', 'WEIGHT'], filterColumn='ID', filterValue=characterId)
+    _systemSpecificCharacterData = dm.dataModels.getDataForModelColumns(model=dm.dataModels.model('CHARACTER_X_CHARACTER_PROPERTY'), columns = ['PROPERTY', 'VALUE'], filterColumn='CHARACTER', filterValue=characterId)
 
     for _key in _generalCharacterData.keys():
       _widget = qh.findChildByProperty(self, QWidget, 'name', _key.lower())
@@ -1609,19 +1957,38 @@ class CharacterBuilderWidget(QWidget):
           _widget.setText(str(_generalCharacterData[_key]))
         elif type(_widget) == QSpinBox:
           _widget.setValue(int(_generalCharacterData[_key]) if _generalCharacterData[_key] else 0)
+        elif type(_widget) == QPlainTextEdit:
+          _widget.setPlainText(_generalCharacterData[_key])
+        elif type(_widget) == qw.RichTextEditor:
+          _widget.setHtml(_generalCharacterData[_key])
         elif type(_widget) == QComboBox:
           _widget.setCurrentText(_generalCharacterData[_key])
 
     for _entry in _systemSpecificCharacterData:
+      # Some properties have to be manually adjusted
+      if _entry['PROPERTY'].lower() == 'abilities':
+        continue
       _widget = qh.findChildByProperty(self, QWidget, 'name', _entry['PROPERTY'].lower())
       if _widget:
         if type(_widget) == QLineEdit:
           _widget.setText(str(_entry['VALUE']))
         elif type(_widget) == QSpinBox:
           _widget.setValue(int(_entry['VALUE']) if _entry['VALUE'] else 0)
+        elif type(_widget) == QPlainTextEdit:
+          _widget.setPlainText(_entry['VALUE'])
+        elif type(_widget) == qw.RichTextEditor:
+          _widget.setHtml(_entry['VALUE'])
         elif type(_widget) == QComboBox:
           _widget.setCurrentText(_entry['VALUE'])
 
+
+
+    # Manual adjustments
+    self.hdSpinBoxLabel.setText(f'HD ({self.classData['hit_dice']}):')
+
+    _abilities = next((_p['VALUE'] for _p in _systemSpecificCharacterData if _p['PROPERTY'].lower() == 'abilities'), None)
+    self.abilities = json.loads(_abilities)
+    self.refreshAbilitiesRichTextEditor()
 
   def makeRollToolButtonForProperty(self, toolTip : str, targetFunction : Callable) -> QToolButton:
     _button = QToolButton()
@@ -1663,7 +2030,7 @@ class CharacterBuilderWidget(QWidget):
       _widget = qh.findChildByProperty(self, QWidget, 'name', _key)
 
       if not _widget:
-        logging.error(f'No widget found for property {_key}')
+        logging.debug(f'No widget found for property {_key}')
         continue
 
     _characterDefinition['name'] = hp.coalesce(self.nameLineEdit.text(), '')
@@ -1672,7 +2039,7 @@ class CharacterBuilderWidget(QWidget):
     _characterDefinition['sex'] = hp.coalesce(self.sexComboBox.currentText(), '')
     _characterDefinition['age'] = hp.coalesce(self.ageSpinBox.value(), '')
     _characterDefinition['height'] = hp.coalesce(self.heightLineEdit.text(), '')
-    _characterDefinition['weight'] = hp.coalesce(f'{self.weightLineEdit.text()} lbs', '')
+    _characterDefinition['weight'] = hp.coalesce(self.weightLineEdit.text(), '')
     _characterDefinition['alignment'] = hp.coalesce(self.alignmentComboBox.currentText(), '')
     _characterDefinition['level'] = int(hp.coalesce(self.levelSpinBox.value(), 0))
     _characterDefinition['xp'] = int(hp.coalesce(self.xpLineEdit.text(), 0))
@@ -1688,7 +2055,7 @@ class CharacterBuilderWidget(QWidget):
     _characterDefinition['movement_exploration'] = hp.coalesce(int(self.movementExplorationLineEdit.text()), 0)
     _characterDefinition['movement_encounter'] = hp.coalesce(int(self.movementEncounterLabel.text()), 0)
     _characterDefinition['movement_overland'] = hp.coalesce(int(self.movementOverlandLabel.text()), 0)
-    _characterDefinition['hit_dice'] = self.classData.get('hit_dice', '')
+    _characterDefinition['hit_dice'] = hp.coalesce(self.hdSpinBox.value(), 1)
     _characterDefinition['hit_points'] = hp.coalesce(int(self.hpLineEdit.text()), 0)
     _characterDefinition['thac0'] = hp.coalesce(self.thac0SpinBox.value(), 0)
     _characterDefinition['ac'] = hp.coalesce(self.acSpinBox.value(), 0)
@@ -1703,18 +2070,112 @@ class CharacterBuilderWidget(QWidget):
     _characterDefinition['skill_hunt'] = hp.coalesce(int(self.huntingSkillSpinBox.value()), 1)
     _characterDefinition['skill_open_stuck_door'] = hp.coalesce(int(self.openStuckDoorSkillSpinBox.value()), 1)
     _characterDefinition['skill_find_secret_door'] = hp.coalesce(int(self.findSecretDoorSkillSpinBox.value()), 1)
+    _characterDefinition['abilities'] = hp.dictToJson(self.abilities)
     _characterDefinition['notes'] = ''
 
     return _characterDefinition
 
-
   def updateAC(self):
-    _ac = self.calculateUnarmoredAc()
-    self.acSpinBox.setValue(_ac)
-    self.acBonusLabel.setText(f'{self.dexterityModSpinBox.value()}')
-    self.unarmoredACLabel.setText(str(_ac))
+    # Gather all necessary data to update AC
+    _itemTypes = qh.getDataForTableWidgetColumn(self.equipmentTable, 'TYPE')
+    _itemCategories = qh.getDataForTableWidgetColumn(self.equipmentTable, 'CATEGORY')
+    _itemAc = qh.getDataForTableWidgetColumn(self.equipmentTable, 'AC')
+    _itemEquippedWidgets = qh.getDataForTableWidgetColumn(self.equipmentTable, 'EQUIPPED')
+    _itemEquipped = []
 
-  def updateUiWithClassData(self):
+    _hasArmourEquipped = False
+    _armourAc = 0
+    _hasShieldEquipped = False
+    _shieldAc = 0
+    for i, _widget in enumerate(_itemEquippedWidgets):
+      _checkBox = qh.findChildByProperty(_widget, QCheckBox, 'name', 'equippedCheckBox')
+      if not _checkBox.isChecked():
+        continue
+
+      if _itemCategories[i].find('Armour') != -1:
+        _hasArmourEquipped = True
+        _armourAc = int(_itemAc[i])
+
+      if _itemCategories[i] == 'Shield':
+        _hasShieldEquipped = True
+        _shieldAc = int(_itemAc[i])
+
+    if self.ac['armour'] is not None and not _hasArmourEquipped:
+      # If armour was equipped but has now been unequipped
+      self.ac['armour'] = None
+    elif _hasArmourEquipped:
+      # If no armour was equipped but has been equipped now
+      self.ac['armour'] = _armourAc
+
+    if self.ac['shield'] is not None and not _hasShieldEquipped:
+      # If a shield was equipped but has now been unequipped
+      self.ac['shield'] = None
+    elif _hasShieldEquipped:
+      # If no shield was equipped but has been equipped now
+      self.ac['shield'] = _shieldAc
+
+    self.ac['dex_bonus'] = self.dexterityModSpinBox.value()
+
+    _totalAc = self.ac['dex_bonus']
+    _totalAc += self.ac['shield'] or 0
+
+    if self.ac['armour'] is not None:
+      _totalAc = self.ac['armour'] - _totalAc
+    else:
+      _totalAc = self.ac['naked'] - _totalAc
+
+    self.ac['total'] = _totalAc
+
+    self.acSpinBox.setValue(self.ac['total'])
+    self.acBonusLabel.setText(str(self.ac['dex_bonus']))
+    self.unarmoredACLabel.setText(str(self.ac['naked'] - self.ac['dex_bonus']))
+
+  def updateAttacks(self):
+    _itemDamages = qh.getDataForTableWidgetColumn(self.equipmentTable, 'DAMAGE')
+    _itemNames = qh.getDataForTableWidgetColumn(self.equipmentTable, 'NAME')
+    _itemEquipped = qh.getDataForTableWidgetColumn(self.equipmentTable, 'EQUIPPED')
+    _itemTypes = qh.getDataForTableWidgetColumn(self.equipmentTable, 'TYPE')
+
+    self.abilities['attacks'] = []
+    for i, _name in enumerate(_itemNames):
+      if _itemTypes[i] != 'Weapon':
+        continue
+
+      _checkBox = qh.findChildByProperty(_itemEquipped[i], QCheckBox, 'name', 'equippedCheckBox')
+
+      if _checkBox.isChecked():
+        _text = f'{_name}: {_itemDamages[i]}'
+        self.abilities['attacks'].append(_text)
+
+    self.refreshAbilitiesRichTextEditor()
+
+  def refreshAbilitiesRichTextEditor(self):
+    self.abilitiesRichTextEditor.clear()
+
+    _content = ''
+    for _key in self.abilities:
+      if not self.abilities[_key]:
+        continue
+
+      if len(_content) > 0:
+        _content += '\n'
+      _textList= []
+      if _key == 'attacks':
+        _content += f'<h4>{_key.upper()}</h4\n<p>'
+        for _attack in self.abilities['attacks']:
+          _textList.append(f'<div>{_attack}</div>')
+        _content += f'{''.join(_textList)}</p>'
+      elif _key == 'spells':
+        _content += f'<h4>{_key.upper()}</h4>\n<p>'
+        for i, _spellLevel in enumerate(self.abilities['spells']):
+          _ordinal = hp.formatIntegerAsOrdinal(i + 1)
+          _textList.append(f'<div>{_ordinal}: {', '.join(_spellLevel)}</div>')
+        _content += ''.join(_textList)
+        _content += '</p>'
+
+    self.abilitiesRichTextEditor.setHtml(_content)
+
+  def updateClassBasedUiParts(self):
     if not self.className:
       return
 
@@ -1750,7 +2211,356 @@ class CharacterBuilderWidget(QWidget):
     # Determine potential xp bonus
     self.calculateXpBonus()
 
-class LoadDialogWidget(QWidget):
+    # Disable spells button in general box
+    if self.usesMagic:
+      self.spellsButton.show()
+    else:
+      self.spellsButton.hide()
+
+class EditCharacterEquipmentDialogWidget(QWidget):
+  itemSelectedForAdd = Signal(list)
+  def __init__(self, parent=None):
+    super().__init__(parent)
+
+    # Data models
+    self.itemModel = dm.dataModels.model('ITEM')
+
+    # UI
+
+    # Equipment type combo box
+    _equipmentTypeComboBoxLabel = QLabel('Equipment Type')
+    self.equipmentTypeComboBox = QComboBox()
+    self.equipmentTypeComboBox.setModel(dm.dataModels.model('ITEM_TYPE'))
+    self.equipmentTypeComboBox.setModelColumn(dm.dataModels.getColumnIdFromName(dm.dataModels.model('ITEM_TYPE'), 'NAME'))
+    self.equipmentTypeComboBox.currentIndexChanged.connect(self.handleEquipmentTypeComboBoxIndexChanged)
+    self.equipmentTypeComboBox.addItem('All')
+
+    # Item table view
+    self.itemTableView = QTableView()
+    self.itemTableView.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+    self.itemTableView.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    self.itemTableView.doubleClicked.connect(self.handleItemTableViewDoubleClicked)
+
+    _leftColumns = ['NAME', 'TYPE']
+    for _column in _leftColumns:
+      _columnId = dm.dataModels.getColumnIdFromName(self.itemModel, _column)
+      self.itemTableView.setItemDelegateForColumn(_columnId, qh.TableViewColumnLeftContentDelegate())
+
+    # Buttons
+    self.addItemButton = QPushButton('Add Item')
+    self.addItemButton.clicked.connect(self.handleAddItemButton)
+
+    _mainLayout = QGridLayout()
+    _mainLayout.setSpacing(15)
+    _mainLayout.setContentsMargins(15, 15, 15, 15)
+    _mainLayout.addWidget(_equipmentTypeComboBoxLabel, 0, 0)
+    _mainLayout.addWidget(self.equipmentTypeComboBox, 0, 1)
+    _mainLayout.addWidget(self.itemTableView, 1, 0, 1, 2)
+    _mainLayout.addWidget(self.addItemButton, 2, 0, 1, 2)
+    self.setLayout(_mainLayout)
+
+    self.resize(1000, 700)
+
+    # Initial UI setup
+    self.equipmentTypeComboBox.setCurrentText('All')
+
+  def adjustTableColumnsForItemType(self, itemType : str):
+    if itemType == 'All':
+      return
+
+    _hiddenColumns = []
+
+    if itemType == 'Armour':
+      _hiddenColumns = ['RANGE', 'RANGE_SHORT', 'RANGE_MEDIUM', 'RANGE_LONG', 'QUANTITY', 'DAMAGE']
+    elif itemType == 'Weapon':
+      _hiddenColumns = ['AC', 'QUANTITY']
+    if itemType == 'Ammunition':
+      _hiddenColumns = ['AC', 'RANGE', 'RANGE_SHORT', 'RANGE_MEDIUM', 'RANGE_LONG']
+
+    _model = self.itemTableView.model()
+
+    for i in range(_model.columnCount()):
+      self.itemTableView.showColumn(i)
+
+    for _column in _hiddenColumns:
+      _columnId = dm.dataModels.getColumnIdFromName(_model, _column)
+      self.itemTableView.setColumnHidden(_columnId, True)
+
+  def handleAddItemButton(self):
+    _items = []
+    _itemData = {}
+
+    _model = self.itemTableView.model()
+    for _row in qh.getSelectedRowsFromTable(self.itemTableView):
+      for i in range(_model.columnCount()):
+        _columnName = dm.dataModels.getColumnNameFromId(_model, i)
+        if _columnName.lower() == 'id':
+          continue
+        _itemData[_columnName.lower()] = _model.data(_model.index(_row, i))
+
+      _items.append(_itemData)
+      _itemData = {}
+
+    self.itemSelectedForAdd.emit(_items)
+
+  def handleEquipmentTypeComboBoxIndexChanged(self):
+    _itemTypeText = self.equipmentTypeComboBox.currentText()
+
+    if _itemTypeText != 'All':
+      _itemTypeId = db.getSingleValue('ITEM_TYPE', 'ID', filterColumns=['NAME'], filterValues=[_itemTypeText])
+      _itemsFiltered = db.simpleSelect('ITEM', ['ID', 'NAME', 'TYPE'], ['TYPE'], [_itemTypeId])
+    else:
+      _itemsFiltered = db.simpleSelect('ITEM', ['ID', 'NAME', 'TYPE'])
+
+    _itemProperties = db.query(f'select NAME from ITEM_PROPERTY where GAME_SYSTEM = ? order by ID', [1])
+    _itemPropertyNames = [_p['NAME'] for _p in _itemProperties]
+
+    # Order names by their ID to enable easy lookup via the list index
+    _itemTypes = db.query(f'select NAME from ITEM_TYPE order by ID')
+    _itemTypeNames = [_t['NAME'] for _t in _itemTypes]
+
+    _finalItemData = []
+    for _item in _itemsFiltered:
+      _dataRow = {'NAME': _item['NAME'], 'TYPE': _itemTypeNames[_item['TYPE'] - 1]}
+      _itemPropertyValues = db.simpleSelect(table='ITEM_X_ITEM_PROPERTY', columns=['PROPERTY', 'VALUE'], filterColumns=['ITEM'], filterValues=[_item['ID']])
+      for _propertyValue in _itemPropertyValues:
+        _propertyName = _itemPropertyNames[_propertyValue['PROPERTY'] - 1]
+        _dataRow[_propertyName.upper()] = _propertyValue['VALUE']
+
+      _finalItemData.append(_dataRow)
+
+    self.itemTableView.setModel(dm.TabularDataModel(_finalItemData))
+    self.adjustTableColumnsForItemType(_itemTypeText)
+
+  def handleItemTableViewDoubleClicked(self):
+    self.handleAddItemButton()
+
+  def keyPressEvent(self, event : QKeyEvent):
+    if event.key() == Qt.Key.Key_Escape:
+      self.close()
+    else:
+      super().keyPressEvent(event)
+
+class EditCharacterSpellsDialogWidget(QWidget):
+  spellsSelectedForAdd = Signal(list)
+  def __init__(self, parent=None):
+    super().__init__(parent)
+
+    # Fields
+    self.className = ''
+
+    # Level selection
+    _spellLevelLabel = QLabel('Spell Level: ')
+    self.spellLevelSpinBox = QSpinBox()
+    self.spellLevelSpinBox.valueChanged.connect(self.handleSpellLevelSpinBoxValueChanged)
+
+    # Available Spells for spell level
+    self.availableSpellsTableWidget = QTableWidget()
+    self.availableSpellsTableWidget.setColumnCount(2)
+    self.availableSpellsTableWidget.setHorizontalHeaderLabels(['LEVEL', 'SPELL'])
+    self.availableSpellsTableWidget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    self.availableSpellsTableWidget.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+    self.availableSpellsTableWidget.setFrameStyle(QFrame.Shape.NoFrame)
+    self.availableSpellsTableWidget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.MinimumExpanding)
+    self.availableSpellsTableWidget.setItemDelegateForColumn(qh.getColumnIdFromTableWidget(self.availableSpellsTableWidget, 'LEVEL'), qh.TableViewColumnCenterContentDelegate())
+    self.availableSpellsTableWidget.itemSelectionChanged.connect(self.handleAvailableSpellsTableWidgetSelectionChanged)
+    self.availableSpellsTableWidget.doubleClicked.connect(self.handleAvailableSpellsTableWidgetDoubleClicked)
+
+    # Description rich text
+    _spellsRichTextEditorLabel = QLabel('Spell Descriptions')
+    self.spellsRichTextEditor = qw.RichTextEditor(mode='view')
+    self.spellsRichTextEditor.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+
+    _richTextVBoxLayout = QVBoxLayout()
+    _richTextVBoxLayout.addWidget(_spellsRichTextEditorLabel)
+    _richTextVBoxLayout.addWidget(self.spellsRichTextEditor)
+
+    _availableSpellsGroupBoxLayout = QHBoxLayout()
+    _availableSpellsGroupBoxLayout.setContentsMargins(15, 15, 15, 15)
+    _availableSpellsGroupBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    _availableSpellsGroupBoxLayout.setSpacing(5)
+
+    _availableSpellsGroupBoxLayout.addWidget(self.availableSpellsTableWidget)
+    _availableSpellsGroupBoxLayout.addLayout(_richTextVBoxLayout)
+
+    _availableSpellsGroupBox = QGroupBox('Available Spells')
+    _availableSpellsGroupBox.setLayout(_availableSpellsGroupBoxLayout)
+
+    # Selected Spells
+    self.selectedSpellsTableWidget = QTableWidget()
+    self.selectedSpellsTableWidget.setColumnCount(3)
+    self.selectedSpellsTableWidget.setHorizontalHeaderLabels(['LEVEL', 'SPELL', 'ACTION'])
+    self.selectedSpellsTableWidget.setFrameStyle(QFrame.Shape.NoFrame)
+    self.selectedSpellsTableWidget.setItemDelegateForColumn(qh.getColumnIdFromTableWidget(self.selectedSpellsTableWidget, 'LEVEL'), qh.TableViewColumnCenterContentDelegate())
+    self.selectedSpellsTableWidget.setSortingEnabled(True)
+
+    _selectedSpellsGroupBoxLayout = QHBoxLayout()
+    _selectedSpellsGroupBoxLayout.setContentsMargins(15, 15, 15, 15)
+    _selectedSpellsGroupBoxLayout.addWidget(self.selectedSpellsTableWidget)
+    _selectedSpellsGroupBox = QGroupBox('Selected Spells')
+    _selectedSpellsGroupBox.setLayout(_selectedSpellsGroupBoxLayout)
+
+    # Select Spells button
+    self.selectSpellsButton = QPushButton('Select Spells')
+    self.selectSpellsButton.clicked.connect(self.handleSelectSpellsButtonClicked)
+
+    # Clear selected spells button
+    self.clearSelectedSpellsButton = QPushButton('Clear Selected Spells')
+    self.clearSelectedSpellsButton.clicked.connect(self.handleClearSelectedSpellsButtonClicked)
+
+    # Save spells button
+    self.saveSpellsButton = QPushButton('Save')
+    self.saveSpellsButton.clicked.connect(self.handleSaveSpellsButtonClicked)
+
+    _mainLayout = QGridLayout()
+    _mainLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    _mainLayout.setSpacing(15)
+    _mainLayout.setContentsMargins(15, 15, 15, 15)
+
+    _mainLayout.addWidget(_spellLevelLabel, 0, 0)
+    _mainLayout.addWidget(self.spellLevelSpinBox, 0, 1)
+    _mainLayout.addWidget(_availableSpellsGroupBox, 0, 2, 3, 1)
+    _mainLayout.addWidget(self.selectSpellsButton, 1, 0, 1, 2)
+    _mainLayout.addWidget(self.clearSelectedSpellsButton, 3, 0, 1, 2)
+    _mainLayout.addWidget(_selectedSpellsGroupBox, 3, 2, 3, 1)
+    _mainLayout.addWidget(self.saveSpellsButton, 4, 0, 1, 2)
+    _mainLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 5, 0)
+
+    _mainLayout.setRowStretch(2, 4)
+    _mainLayout.setRowStretch(5, 5)
+
+    self.setLayout(_mainLayout)
+    self.resize(1100, 1100)
+
+  def handleAvailableSpellsTableWidgetDoubleClicked(self):
+    self.handleSelectSpellsButtonClicked()
+
+  def handleAvailableSpellsTableWidgetSelectionChanged(self):
+    _selectedRows = qh.getSelectedRowsFromTable(self.availableSpellsTableWidget)
+
+    _content = ''
+    self.spellsRichTextEditor.editor.clear()
+    for _rowId in _selectedRows:
+      _spellName = qh.getDataForTableWidgetCell(self.availableSpellsTableWidget, _rowId, 'SPELL')
+      _spell = data.gameSystemData.getSpell('ose', self.className, _spellName)
+      _content += f'<h2 style="text-decoration: underline">{_spellName}</h2>{_spell['description']}'
+
+    self.spellsRichTextEditor.editor.setHtml(_content)
+
+  def handleClearSelectedSpellsButtonClicked(self):
+    self.selectedSpellsTableWidget.setRowCount(0)
+
+  def handleDeleteSpellButtonClicked(self):
+    index = self.selectedSpellsTableWidget.indexAt(self.sender().pos())
+    _row = index.row()
+    self.selectedSpellsTableWidget.removeRow(_row)
+
+  def handleSaveSpellsButtonClicked(self):
+    _data = qh.getDataForTableWidget(self.selectedSpellsTableWidget, columns=['LEVEL', 'SPELL'])
+    self.spellsSelectedForAdd.emit(_data)
+
+  def handleSelectSpellsButtonClicked(self):
+    self.selectedSpellsTableWidget.setSortingEnabled(False)
+    _rowCount = self.selectedSpellsTableWidget.rowCount()
+
+    # Get existing data from table and add new spells
+    _tableData = qh.getDataForTableWidget(self.selectedSpellsTableWidget, ['LEVEL', 'SPELL'])
+
+    for _rowId in qh.getSelectedRowsFromTable(self.availableSpellsTableWidget):
+      _spellLevel = qh.getDataForTableWidgetCell(self.availableSpellsTableWidget, _rowId, 'LEVEL')
+      _spellName = qh.getDataForTableWidgetCell(self.availableSpellsTableWidget, _rowId, 'SPELL')
+
+      # Check if entry already exists and skip if true
+      _alreadyExists = any(
+        qh.getDataForTableWidgetCell(self.selectedSpellsTableWidget, i, 'LEVEL') == _spellLevel and
+        qh.getDataForTableWidgetCell(self.selectedSpellsTableWidget, i, 'SPELL') == _spellName
+        for i in range(self.selectedSpellsTableWidget.rowCount())
+      )
+      if _alreadyExists:
+        continue
+
+      _tableData.append({'LEVEL': _spellLevel, 'SPELL': _spellName, 'ACTION': None})
+
+    # Sort by level and spell
+    _tableDataSorted = sorted(_tableData, key=lambda s: (s['LEVEL'], s['SPELL']))
+
+    # Repopulate table with sorted data
+    self.selectedSpellsTableWidget.setRowCount(0)
+    qh.loadDataIntoTableWidget(self.selectedSpellsTableWidget, _tableDataSorted)
+
+    # Add delete button to each row and set other columns to read-only
+    _actionColumnId = qh.getColumnIdFromTableWidget(self.selectedSpellsTableWidget, 'ACTION')
+
+    for i in range(self.selectedSpellsTableWidget.rowCount()):
+      for j in range(self.selectedSpellsTableWidget.columnCount()):
+        _columnName = self.selectedSpellsTableWidget.horizontalHeaderItem(j).text()
+        if _columnName == 'ACTION':
+          continue
+        _item = self.selectedSpellsTableWidget.item(i, j)
+        _item.setFlags(_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+      _deleteButton = QToolButton()
+      _deleteButton.setFont(apc.Icons.font())
+      _deleteButton.setText(apc.Icons.text('trash'))
+      _deleteButton.clicked.connect(self.handleDeleteSpellButtonClicked)
+
+      self.selectedSpellsTableWidget.setCellWidget(i, _actionColumnId, _deleteButton)
+
+    self.selectedSpellsTableWidget.setSortingEnabled(True)
+    self.selectedSpellsTableWidget.resizeColumnsToContents()
+    _width = self.selectedSpellsTableWidget.columnWidth(1)
+    # Add space to the column
+    self.selectedSpellsTableWidget.setColumnWidth(1, _width + 10)
+
+  def handleSpellLevelSpinBoxValueChanged(self):
+    self.loadSpellData()
+
+  def keyPressEvent(self, event : QKeyEvent):
+    if event.key() == Qt.Key.Key_Escape:
+      self.close()
+    else:
+      super().keyPressEvent(event)
+
+  def loadSpellData(self):
+    _spellLevel = self.spellLevelSpinBox.value()
+    _spells = data.gameSystemData.getAllSpellsForClass('ose', self.className)
+    if not _spells:
+      self.availableSpellsTableWidget.setRowCount(0)
+      return
+
+    _spellsForLevel = data.gameSystemData.getAllSpellsForClass('ose', self.className).get(str(_spellLevel))
+    if _spellsForLevel is None:
+      self.availableSpellsTableWidget.setRowCount(0)
+      return
+
+    _spellsForLevel = dict(sorted(_spellsForLevel.items()))
+
+    self.availableSpellsTableWidget.setRowCount(0)
+    for _item in _spellsForLevel.items():
+      self.availableSpellsTableWidget.setRowCount(self.availableSpellsTableWidget.rowCount() + 1)
+      _spellColumnItem = QTableWidgetItem(_item[0])
+      _spellColumnItem.setFlags(_spellColumnItem.flags() & ~Qt.ItemFlag.ItemIsEditable)
+      _levelColumnItem = QTableWidgetItem(str(_spellLevel))
+      _levelColumnItem.setFlags(_levelColumnItem.flags() & ~Qt.ItemFlag.ItemIsEditable)
+      self.availableSpellsTableWidget.setItem(self.availableSpellsTableWidget.rowCount() - 1, 0, _levelColumnItem)
+      self.availableSpellsTableWidget.setItem(self.availableSpellsTableWidget.rowCount() - 1, 1, _spellColumnItem)
+
+    self.availableSpellsTableWidget.resizeColumnsToContents()
+    _width = self.availableSpellsTableWidget.columnWidth(1)
+    # Add space to the column
+    self.availableSpellsTableWidget.setColumnWidth(1, _width + 10)
+
+  def updateUiWithClassData(self, className : str):
+    self.className = className
+    self.classData = data.gameSystemData.getClass('ose', className)
+
+    self.setWindowTitle(f'{self.className} Spells')
+    self.spellLevelSpinBox.setRange(1, self.classData['max_spell_level'])
+    self.spellLevelSpinBox.setValue(1)
+    self.loadSpellData()
+
+class LoadClassFromDatabaseDialogWidget(QWidget):
+  # Signals
   classSelectedForLoad = Signal(int)
   classSelectedForLoadNew = Signal(str)
   characterSelectedForLoad = Signal(int)
@@ -1762,12 +2572,12 @@ class LoadDialogWidget(QWidget):
 
     self.gameSystemLabel = QLabel('Game System: ')
     self.gameSystemComboBox = QComboBox()
-    self.gameSystemComboBox.setModel(dm.getDataModels().model('GAME_SYSTEM'))
-    self.gameSystemComboBox.setModelColumn(dm.getDataModels().model('GAME_SYSTEM').record().indexOf('NAME'))
+    self.gameSystemComboBox.setModel(dm.dataModels.model('GAME_SYSTEM'))
+    self.gameSystemComboBox.setModelColumn(dm.dataModels.model('GAME_SYSTEM').record().indexOf('NAME'))
     self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxIndexChanged)
 
     self.tableView = QTableView()
-    self.tableView.setModel(dm.getDataModels().model(self.modelName))
+    self.tableView.setModel(dm.dataModels.model(self.modelName))
     self.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     self.tableView.setSelectionMode(QTableView.SelectionMode.SingleSelection)
     self.tableView.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -1829,6 +2639,12 @@ class LoadDialogWidget(QWidget):
 
     self.close()
 
+  def keyPressEvent(self, event : QKeyEvent):
+    if event.key() == Qt.Key.Key_Escape:
+      self.close()
+    else:
+      super().keyPressEvent(event)
+
 class Trait:
   class Element:
     def __init__(self, order : int = 0, elementType : str = None, content : str | dict = None):
@@ -1878,11 +2694,16 @@ class TraitGroupBox(QGroupBox):
     _layout.setSpacing(5)
     _layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
     _layout.addWidget(_nameLabel, 0, 0)
-    _layout.addWidget(_nameLineEdit, 0, 1, 1, 2)
+    _layout.addWidget(_nameLineEdit, 0, 1)
+
     if self.mode == 'edit':
-      _layout.addWidget(self.addElementComboBox, 1, 0)
-      _layout.addWidget(_deleteButton, 1, 1)
-    _layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum), 1, 2)
+      _buttonLayout = QHBoxLayout()
+      _buttonLayout.setSpacing(5)
+      _buttonLayout.addWidget(self.addElementComboBox)
+      _buttonLayout.addWidget(_deleteButton)
+      _buttonLayout.addStretch()
+      _layout.addLayout(_buttonLayout, 1, 0, 1, 2)
+
     self.setLayout(_layout)
 
     if self.trait.elements:
@@ -1900,16 +2721,13 @@ class TraitGroupBox(QGroupBox):
         if _element.type == 'text':
           _widget = self.buildTextElement()
           _widget.editor.setHtml(_element.content)
-          _widget.editor.syncInternalBlockFormatWithDocument()
-          if self.mode == 'view':
-            _widget.editor.setReadOnly(True)
         elif _element.type == 'table':
           _widget = self.buildTableElement(columns=_element.content['columns'], data=_element.content['rows'])
           _widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers if self.mode == 'view' else QAbstractItemView.EditTrigger.AnyKeyPressed)
 
         _layout = self.buildElementLayout(_widget, _element.type, _traitGroupBoxLayoutRowCount)
 
-        self.layout().addLayout(_layout, _traitGroupBoxLayoutRowCount, 0, 1, 3)
+        self.layout().addLayout(_layout, _traitGroupBoxLayoutRowCount, 0, 1, 2)
         _traitGroupBoxLayoutRowCount = self.layout().rowCount()
 
       # Add spacer at the bottom to push up all elements above
@@ -1947,6 +2765,8 @@ class TraitGroupBox(QGroupBox):
     _elementHBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     _elementHBoxLayout.addLayout(_widgetVBoxLayout)
 
+    _elementHBoxLayout.setStretch(0, 8)
+
     if self.mode == 'edit':
       _buttonLayout = self.buildTraitElementButtonsLayout(deleteButtonTooltip=_deleteButtonTooltip, layoutRow=layoutRow)
       _elementHBoxLayout.addLayout(_buttonLayout)
@@ -1958,22 +2778,25 @@ class TraitGroupBox(QGroupBox):
       return
 
     # Delete trait button
-    _deleteButton = QPushButton()
-    _deleteButton.setIcon(QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+    _deleteButton = QToolButton()
+    _deleteButton.setFont(apc.Icons.font())
+    _deleteButton.setText(apc.Icons.text('trash'))
     _deleteButton.setToolTip(deleteButtonTooltip)
     _deleteButton.setProperty('row', layoutRow)
     _deleteButton.clicked.connect(self.handleDeleteTraitElementButton)
 
     # Move up button
-    _moveUpButton = QPushButton()
-    _moveUpButton.setIcon(QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
+    _moveUpButton = QToolButton()
+    _moveUpButton.setFont(apc.Icons.font())
+    _moveUpButton.setText(apc.Icons.text('arrow-up'))
     _moveUpButton.setToolTip('Move Up')
     _moveUpButton.setProperty('row', layoutRow)
     _moveUpButton.clicked.connect(lambda clicked: self.handleMoveTraitElementUpDownButtons(layoutRow, 'up'))
 
     # Move down button
-    _moveDownButton = QPushButton()
-    _moveDownButton.setIcon(QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
+    _moveDownButton = QToolButton()
+    _moveDownButton.setFont(apc.Icons.font())
+    _moveDownButton.setText(apc.Icons.text('arrow-down'))
     _moveDownButton.setToolTip('Move Down')
     _moveDownButton.setProperty('row', layoutRow)
     _moveDownButton.clicked.connect(lambda clicked: self.handleMoveTraitElementUpDownButtons(layoutRow, 'down'))
@@ -2132,38 +2955,27 @@ class TraitGroupBox(QGroupBox):
 
     self.rebuildLayout()
 
-class TraitsScrollArea(QScrollArea):
-  def __init__(self, parent=None, mode : str = 'edit', displayTitle : bool = True):
+class TraitsTableWidget(QTableWidget):
+  def __init__(self, parent=None, mode : str = 'edit'):
     super().__init__(parent)
 
     # Fields
     self.traits = []
     self.mode = mode
 
-    _traitsLabel = QLabel('Traits:')
-    _addTraitButton = QPushButton('+')
-    _addTraitButton.setProperty('name', 'addTraitButton')
-    _addTraitButton.clicked.connect(self.handleAddTraitButton)
+    self._columnNames = ['NAME', 'ACTIONS']
 
-    _addTraitButtonHelperLayout = QHBoxLayout()
-    _addTraitButtonHelperLayout.addWidget(_addTraitButton)
-    _addTraitButtonHelperLayout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+    ## FINAL SET UP ##
 
-    _layout = QGridLayout()
-    _layout.setSpacing(10)
-    _layout.setContentsMargins(0, 0, 0, 0)
-    if mode == 'edit':
-      _layout.addWidget(_traitsLabel, 0, 0)
-      _layout.addLayout(_addTraitButtonHelperLayout, 1, 0)
-    _layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+    self.setRowCount(0)
+    self.setColumnCount(len(self._columnNames))
+    self.setHorizontalHeaderLabels(self._columnNames)
 
-    _containerWidget = QWidget()
-    _containerWidget.setLayout(_layout)
-
-    # Finish setup
-    self.setWidgetResizable(True)
-    #self.setFrameStyle(QFrame.Shape.NoFrame)
-    self.setWidget(_containerWidget)
+    # Disable headers, grid, frame
+    self.horizontalHeader().setVisible(False)
+    self.verticalHeader().setVisible(False)
+    self.setShowGrid(False)
+    self.setFrameShape(QFrame.Shape.NoFrame)
 
   def addTrait(self, name='', elementList : list = None, addToRegister = True):
     # Save trait to register
@@ -2171,53 +2983,73 @@ class TraitsScrollArea(QScrollArea):
     if addToRegister:
       self.traits.append(_trait)
 
-    _nameLabel = QLabel(name)
-    _nameLabel.setProperty('name', 'traitNameLabel')
+    _rowCount = self.rowCount()
+    self.setRowCount(_rowCount + 1)
 
-    _fileIcon = QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-    _editViewButton = QPushButton()
-    _editViewButton.setIcon(_fileIcon)
+    _nameItem = QTableWidgetItem(name)
+    _nameColumnId = self._columnNames.index('NAME')
+    self.setItem(_rowCount, _nameColumnId, _nameItem)
+    self.resizeColumnToContents(_nameColumnId)
+    self.setColumnWidth(_nameColumnId, self.columnWidth(_nameColumnId) + 10)
+
+    # ACTION column buttons
+
+    # Edit/view button
+    _editViewButton = QToolButton()
+    _editViewButton.setFont(apc.Icons.font())
+    _editViewButton.setText(apc.Icons.text('list'))
     _editViewButton.setToolTip('View/Edit')
     _editViewButton.setProperty('name', 'editViewTraitButton')
+    _editViewButton.clicked.connect(lambda clicked, button=_editViewButton: self.handleTraitEditViewButtonClicked(button))
 
-    # Move up button
-    _moveUpButton = QPushButton()
-    _moveUpButton.setIcon(QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
-    _moveUpButton.setToolTip('Move Up')
-    _moveUpButton.setProperty('name', 'moveUpButton')
-    # Move down button
-    _moveDownButton = QPushButton()
-    _moveDownButton.setIcon(QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
-    _moveDownButton.setToolTip('Move Down')
-    _moveDownButton.setProperty('name', 'moveDownButton')
+    _buttonContainer = QWidget()
+    _buttonContainerLayout = QHBoxLayout(_buttonContainer)
+    _buttonContainerLayout.setSpacing(5)
+    _buttonContainerLayout.setContentsMargins(2, 2, 2, 2)
+    _buttonContainerLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-    _trashIcon = QApplication.instance().style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-    _deleteButton = QPushButton()
-    _deleteButton.setIcon(_trashIcon)
-    _deleteButton.setToolTip('Delete')
-    _deleteButton.setProperty('name', 'deleteTraitButton')
+    _buttonContainerLayout.addWidget(_editViewButton)
 
-    _layoutRow = self.widget().layout().rowCount()
-    _editViewButton.clicked.connect(lambda clicked : self.handleTraitEditViewButtonClicked(_layoutRow, name))
-    _deleteButton.clicked.connect(lambda clicked : self.handleTraitDeleteButtonClicked(_layoutRow, name))
-    _moveUpButton.clicked.connect(lambda clicked: self.handleMoveTraitElementUpDownButtons(_layoutRow, 'up'))
-    _moveDownButton.clicked.connect(lambda clicked: self.handleMoveTraitElementUpDownButtons(_layoutRow, 'down'))
-
-    self.widget().layout().addWidget(_nameLabel, _layoutRow, 0)
-    self.widget().layout().addWidget(_editViewButton, _layoutRow, 1)
-
+    _actionsColumnId = self._columnNames.index('ACTIONS')
     if self.mode == 'edit':
-      self.widget().layout().addWidget(_moveUpButton, _layoutRow, 2)
-      self.widget().layout().addWidget(_moveDownButton, _layoutRow, 3)
-      self.widget().layout().addWidget(_deleteButton, _layoutRow, 4)
+      # Move up button
+      _moveUpButton = QToolButton()
+      _moveUpButton.setFont(apc.Icons.font())
+      _moveUpButton.setText(apc.Icons.text('arrow-up'))
+      _moveUpButton.setToolTip('Move Up')
+      _moveUpButton.setProperty('name', 'moveUpButton')
+      _moveUpButton.clicked.connect(lambda clicked, button=_moveUpButton: self.handleMoveTraitElementUpDownButtons('up', button))
+
+      # Move down button
+      _moveDownButton = QToolButton()
+      _moveDownButton.setFont(apc.Icons.font())
+      _moveDownButton.setText(apc.Icons.text('arrow-down'))
+      _moveDownButton.setToolTip('Move Down')
+      _moveDownButton.setProperty('name', 'moveDownButton')
+      _moveDownButton.clicked.connect(lambda clicked, button=_moveDownButton: self.handleMoveTraitElementUpDownButtons('down', button))
+
+      # Delete button
+      _deleteButton = QToolButton()
+      _deleteButton.setFont(apc.Icons.font())
+      _deleteButton.setText(apc.Icons.text('trash'))
+      _deleteButton.setToolTip('Delete')
+      _deleteButton.setProperty('name', 'deleteTraitButton')
+      _deleteButton.clicked.connect(lambda clicked, button=_deleteButton: self.handleTraitDeleteButtonClicked(button))
+
+      _buttonContainerLayout.addWidget(_moveUpButton)
+      _buttonContainerLayout.addWidget(_moveDownButton)
+      _buttonContainerLayout.addWidget(_deleteButton)
+
+    self.setCellWidget(_rowCount, _actionsColumnId, _buttonContainer)
+
 
   def addTraits(self):
     for _trait in self.traits:
       self.addTrait(name=_trait.name, elementList=_trait.elements, addToRegister=False)
 
   def addTraitsFromJson(self, traits):
-    self.resetLayout()
     self.resetTraitRegister()
+    self.setRowCount(0)
 
     # Load traits
     _traits = traits
@@ -2230,6 +3062,10 @@ class TraitsScrollArea(QScrollArea):
 
       self.addTrait(name=_trait['name'], elementList=_elements, addToRegister=True)
 
+  def getButtonRowAndColumn(self, button) -> tuple[int, int]:
+    _index  = self.indexAt(button.mapTo(self.viewport(), QPoint(0, 0)))
+    return _index.row(), _index.column()
+
   def getTraitPositionInRegisterByName(self, name : str) -> int | None :
     _position = next((_i for _i, _t in enumerate(self.traits) if _t.name == name), None)
     return _position
@@ -2238,59 +3074,65 @@ class TraitsScrollArea(QScrollArea):
     _position = self.getTraitPositionInRegisterByName(name)
     return self.traits[_position] if _position is not None else None
 
-  def handleAddTraitButton(self):
-    self.addTrait()
+  def handleMoveTraitElementUpDownButtons(self, direction: str, button : QPushButton):
+    _oldRow = self.getButtonRowAndColumn(button)[0]
 
-  def handleMoveTraitElementUpDownButtons(self, layoutRow: int, direction: str):
+    # Skip if the up/down button is pressed on the first/last row
+    if (_oldRow == 0 and direction == 'up' or
+        _oldRow == len(self.traits) - 1 and direction == 'down'):
+      return
+
     # Get name of the respective trait
-    _traitName = None
-    for i in range(self.widget().layout().count()):
-      _row, _column, _rowSpan, _columnSpan = self.widget().layout().getItemPosition(i)
+    _name = self.item(_oldRow, qh.getColumnIdFromTableWidget(self, 'NAME')).text()
 
-      if _row != layoutRow:
+    _rowDataSource = qh.getDataForTableWidgetRow(self, _oldRow)
+
+    _rowDataSwap = None
+    _newRow = _oldRow
+    if direction == 'up':
+      _rowDataSwap = qh.getDataForTableWidgetRow(self, _oldRow - 1)
+      _newRow -= 1
+    elif direction == 'down':
+      _rowDataSwap = qh.getDataForTableWidgetRow(self, _oldRow + 1)
+      _newRow += 1
+
+    for i in range(self.columnCount()):
+      _columnName = self.horizontalHeaderItem(i).text()
+      if _columnName == 'ACTIONS':
         continue
 
-      _item = self.widget().layout().itemAt(i)
-      if not _item.widget():
-        continue
-
-      if _item.widget().property('name') == 'traitNameLabel':
-        _traitName = _item.widget().text()
-        break
-
-    if not _traitName:
-      return
-
-    _oldIndex = next((_i for _i, _t in enumerate(self.traits) if _t.name == _traitName), None)
-    if _oldIndex is None:
-      return
-
-    _newIndex = _oldIndex + 1 if direction == 'down' else _oldIndex - 1
-    if not 0 <= _newIndex < len(self.traits):
-      return
+      _itemOldCell = self.takeItem(_oldRow, i)
+      _itemSwapCell = self.takeItem(_newRow, i)
+      self.setItem(_newRow, i, _itemOldCell)
+      self.setItem(_oldRow, i, _itemSwapCell)
 
     # Swap traits
-    self.traits[_oldIndex], self.traits[_newIndex] = self.traits[_newIndex], self.traits[_oldIndex]
+    self.traits[_oldRow], self.traits[_newRow] = self.traits[_newRow], self.traits[_oldRow]
 
-    self.resetLayout()
-    self.addTraits()
+  def handleTraitDeleteButtonClicked(self, button : QPushButton):
+    _row = self.getButtonRowAndColumn(button)[0]
 
-  def handleTraitDeleteButtonClicked(self, row: int, name : str):
     # Delete trait from register
-    _position = self.getTraitPositionInRegisterByName(name)
+    _nameColumnId = qh.getColumnIdFromTableWidget(self, 'NAME')
+    _name = self.item(_row, qh.getColumnIdFromTableWidget(self, 'NAME')).text()
+    _position = self.getTraitPositionInRegisterByName(_name)
     if _position is not None:
       del self.traits[_position]
 
-    self.resetLayout()
-    self.addTraits()
+    # Delete row from table
+    self.removeRow(_row)
 
-  def handleTraitEditViewButtonClicked(self, row : int, name : str):
+  def handleTraitEditViewButtonClicked(self, button : QPushButton):
+    _row = self.getButtonRowAndColumn(button)[0]
+
+    _name = self.item(_row, qh.getColumnIdFromTableWidget(self, 'NAME')).text()
+
     # Build selected trait group box
-    _trait = self.getTraitFromRegisterByName(name)
+    _trait = self.getTraitFromRegisterByName(_name)
     if not _trait:
       return
 
-    _traitGroupBox = TraitGroupBox(layoutRow=row, trait=_trait, mode=self.mode)
+    _traitGroupBox = TraitGroupBox(layoutRow=_row, trait=_trait, mode=self.mode)
     _traitGroupBox.deletionRequested.connect(self.handleTraitGroupBoxDeletionRequested)
 
     _saveButton = QPushButton('Save')
@@ -2335,7 +3177,21 @@ class TraitsScrollArea(QScrollArea):
 
           _innerWidget.setProperty('row', _row)
 
-    qh.updateLayoutOnWidget(self.widget(), _newLayout)
+      qh.updateLayoutOnWidget(self.widget(), _newLayout)
+
+  def resetTraitRegister(self):
+    self.traits = []
+
+  def serializeTraitRegister(self):
+    _result = []
+    for _trait in self.traits:
+      _name = _trait.name
+      _elements = []
+      for i, _element in enumerate(_trait.elements):
+        _elements.append({'order': i, 'type': _element.type, 'content': _element.content})
+      _result.append({'name': _name, 'elements': _elements})
+
+    return _result
 
   def saveTraitToRegister(self, traitGroupBox):
     # Get trait's name
@@ -2370,44 +3226,12 @@ class TraitsScrollArea(QScrollArea):
     for _trait in self.traits:
       self.addTrait(name=_trait.name, elementList=_trait.elements, addToRegister=False)
 
-  def rebuildLayout(self):
-    _newLayout = qh.rebuildLayout(self.widget().layout())
-    qh.updateLayoutOnWidget(self.widget(), _newLayout)
-
-  def resetLayout(self):
-    _layout = self.widget().layout()
-
-    for i in reversed(range(_layout.count())):
-      _item = _layout.itemAt(i)
-      if not _item.widget():
-        continue
-
-      if _item.widget().property('name') in ('traitNameLabel', 'editViewTraitButton', 'moveUpButton', 'moveDownButton', 'deleteTraitButton'):
-        _item = _layout.takeAt(i)
-        _item.widget().deleteLater()
-
-    self.rebuildLayout()
-
-  def resetTraitRegister(self):
-    self.traits = []
-
-  def serializeTraitRegister(self):
-    _result = []
-    for _trait in self.traits:
-      _name = _trait.name
-      _elements = []
-      for i, _element in enumerate(_trait.elements):
-        _elements.append({'order': i, 'type': _element.type, 'content': _element.content})
-      _result.append({'name': _name, 'elements': _elements})
-
-    return _result
-
 class ClassManagerOseWidget(QWidget):
   def __init__(self, parent=None):
     super().__init__(parent)
 
     #Fields
-    self.gameSystemId = dm.getDataModels().getDataForModelIndex(modelName='GAME_SYSTEM', columnName='ID', filterColumns=('NAME_SHORT',), filterValues=('OSE',))
+    self.gameSystemId = dm.dataModels.getDataForModelIndex(model=dm.dataModels.model('GAME_SYSTEM'), columnName='ID', filterColumns=('NAME_SHORT',), filterValues=('OSE',))
     self.isCustomClass = False
     self.usesMagic = False
 
@@ -2420,8 +3244,8 @@ class ClassManagerOseWidget(QWidget):
     # Game System ComboBox
     _gameSystemLabel = QLabel('Game System: ')
     self.gameSystemComboBox = QComboBox()
-    self.gameSystemComboBox.setModel(dm.getDataModels().model('GAME_SYSTEM'))
-    self.gameSystemComboBox.setModelColumn(dm.getDataModels().model('GAME_SYSTEM').record().indexOf('NAME'))
+    self.gameSystemComboBox.setModel(dm.dataModels.model('GAME_SYSTEM'))
+    self.gameSystemComboBox.setModelColumn(dm.dataModels.model('GAME_SYSTEM').record().indexOf('NAME'))
     self.gameSystemComboBox.currentIndexChanged.connect(self.handleGameSystemComboBoxIndexChanged)
 
     # Custom Class CheckBox
@@ -2520,8 +3344,9 @@ class ClassManagerOseWidget(QWidget):
 
     self.levelProgressionTableWidget.setHorizontalHeaderItem(len(_levelProgressionTableColumns), QTableWidgetItem('ACTIONS'))
     self.levelProgressionTableWidget.setColumnWidth(len(_levelProgressionTableColumns), len('ACTIONS') * 10)
+
     # Traits #
-    self.traitsScrollArea = TraitsScrollArea()
+    self.traitsTableWidget = TraitsTableWidget()
 
     # Bottom button row
     _importFromFileButton = QPushButton('Import From File')
@@ -2537,7 +3362,7 @@ class ClassManagerOseWidget(QWidget):
     ## Widgets, Pop-Ups, Tool-Windows, etc.
 
     # Load class pop-up
-    self.loadClassWidget = LoadDialogWidget(dataModelName='CLASS')
+    self.loadClassWidget = LoadClassFromDatabaseDialogWidget(dataModelName='CLASS')
     self.loadClassWidget.setWindowTitle('Load Class From Database')
     self.loadClassWidget.classSelectedForLoad.connect(self.loadClassDataFromDatabase)
     self.loadClassWidget.classSelectedForLoadNew.connect(self.loadClassData)
@@ -2569,7 +3394,7 @@ class ClassManagerOseWidget(QWidget):
     _propertiesGridLayout.addWidget(self.nameLineEdit, 0, 1)
     _propertiesGridLayout.addWidget(_requirementsLabel, 0, 2)
     _propertiesGridLayout.addWidget(self.requirementsLineEdit, 0, 3)
-    _propertiesGridLayout.addWidget(self.traitsScrollArea, 0, 4, 11, 1)
+    _propertiesGridLayout.addWidget(self.traitsTableWidget, 0, 4, 11, 1)
     _propertiesGridLayout.addWidget(_hitDiceLabel, 1, 0)
     _propertiesGridLayout.addWidget(self.hitDiceLineEdit, 1, 1)
     _propertiesGridLayout.addWidget(_primeRequisitesLabel, 1, 2)
@@ -2613,11 +3438,10 @@ class ClassManagerOseWidget(QWidget):
     self.setLayout(_mainGridLayout)
 
   def buildTraitUiFromDb(self, traits : str):
-    self.traitsScrollArea.resetLayout()
-    self.traitsScrollArea.addTraitsFromJson(traits)
+    self.traitsTableWidget.addTraitsFromJson(traits)
 
   def getClassPropertyId(self, propertyName):
-    return dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(propertyName,))
+    return dm.dataModels.getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(propertyName,))
 
   def getGameSystemNameFromComboBox(self) -> str | None:
     _gameSystemLabel = self.gameSystemComboBox.currentText()
@@ -2642,8 +3466,8 @@ class ClassManagerOseWidget(QWidget):
     self.levelProgressionTableWidget.setRowCount(0)
     for i in range(self.levelProgressionTableWidget.columnCount()):
       self.levelProgressionTableWidget.showColumn(i)
-    self.traitsScrollArea.resetLayout()
-    self.traitsScrollArea.traits = []
+    self.traitsTableWidget.setRowCount(0)
+    self.traitsTableWidget.traits = []
 
     self.isCustomClass = False
     self.usesMagic = False
@@ -2693,23 +3517,27 @@ class ClassManagerOseWidget(QWidget):
     _clearIcon = app.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
 
     _deleteButton = QPushButton()
-    _deleteButton.setIcon(_trashIcon)
+    _deleteButton.setFont(apc.Icons.font())
+    _deleteButton.setText(apc.Icons.text('trash'))
     _deleteButton.setToolTip('Delete')
     _deleteButton.setProperty('row', self.levelProgressionTableWidget.rowCount() - 1)
     _deleteButton.clicked.connect(self.handleDeleteLevelProgressionRowButton)
 
     _resetButton = QPushButton('-')
-    _resetButton.setIcon(_clearIcon)
+    _resetButton.setFont(apc.Icons.font())
+    _resetButton.setText(apc.Icons.text('refresh'))
     _resetButton.setToolTip('Reset')
     _resetButton.setProperty('row', self.levelProgressionTableWidget.rowCount() - 1)
     _resetButton.clicked.connect(self.handleResetLevelProgressionRowButton)
 
     _buttonContainer = QWidget()
     _buttonContainerLayout = QHBoxLayout(_buttonContainer)
-    _buttonContainerLayout.addWidget(_deleteButton)
-    _buttonContainerLayout.addWidget(_resetButton)
     _buttonContainerLayout.setSpacing(5)
     _buttonContainerLayout.setContentsMargins(2, 2, 2, 2)
+    _buttonContainerLayout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    _buttonContainerLayout.addWidget(_deleteButton)
+    _buttonContainerLayout.addWidget(_resetButton)
 
     self.levelProgressionTableWidget.setCellWidget(self.levelProgressionTableWidget.rowCount() - 1, self.levelProgressionTableWidget.columnCount() -1, _buttonContainer)
 
@@ -2739,7 +3567,7 @@ class ClassManagerOseWidget(QWidget):
       return
 
     # Get class id from name
-    _classId = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumns=('NAME', 'GAME_SYSTEM'), filterValues=(_className, self.gameSystemId))
+    _classId = dm.dataModels.getDataForModelIndex(modelName='CLASS', columnName='ID', filterColumns=('NAME', 'GAME_SYSTEM'), filterValues=(_className, self.gameSystemId))
 
     _overwriteClass = False
     db.beginTransaction()
@@ -2791,14 +3619,14 @@ class ClassManagerOseWidget(QWidget):
           continue
 
         # Map column header to property name and retrieve id for insert
-        _propertyName = dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='NAME', filterColumns=('LABEL',), filterValues=(_columnName,))
-        _propertyId = dm.getDataModels().getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(_propertyName,))
+        _propertyName = dm.dataModels.getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='NAME', filterColumns=('LABEL',), filterValues=(_columnName,))
+        _propertyId = dm.dataModels.getDataForModelIndex(modelName='CLASS_PROPERTY', columnName='ID', filterColumns=('NAME',), filterValues=(_propertyName,))
 
         _value = self.levelProgressionTableWidget.item(i, j).text() if self.levelProgressionTableWidget.item(i, j) else ''
         _maxSqlRc = max(self.writeClassPropertyToDb(_classId, propertyId=_propertyId, propertyValue=_value, order=i), _maxSqlRc)
 
    # Traits
-    _serializedTraits = self.traitsScrollArea.serializeTraitRegister()
+    _serializedTraits = self.traitsTableWidget.serializeTraitRegister()
     _jsonStr = json.dumps(_serializedTraits)
 
     _traitsClassPropertyId = self.getClassPropertyId('traits')
@@ -2813,11 +3641,11 @@ class ClassManagerOseWidget(QWidget):
     db.endTransaction()
 
     # Refresh relevant models
-    _classModel = dm.getDataModels().model('CLASS')
+    _classModel = dm.dataModels.model('CLASS')
     _classModel.setQuery(_classModel.query().lastQuery())
 
   def changeSpellColumnVisibility(self, classId):
-    _classUsesMagic = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,))
+    _classUsesMagic = dm.dataModels.getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,))
     _hideSpellColumns = False
     if not bool(_classUsesMagic):
       _hideSpellColumns = True
@@ -2904,7 +3732,7 @@ class ClassManagerOseWidget(QWidget):
         self.handleClearButton(confirm=False)
 
     # Get class data from access layer
-    _className = dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='NAME', filterColumns=('ID',), filterValues=(classId,))
+    _className = dm.dataModels.getDataForModelIndex(modelName='CLASS', columnName='NAME', filterColumns=('ID',), filterValues=(classId,))
 
     # Load and prepare class information
     _classProperties = self.prepareClassDataForLoading(classId)
@@ -2933,8 +3761,8 @@ class ClassManagerOseWidget(QWidget):
         logging.error(f'The class property {_key} does not have a corresponding ui field!')
 
     # Checkboxes
-    self.handleCustomClassCheckBoxToggled(dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='CUSTOM', filterColumns=('ID',), filterValues=(classId,)))
-    self.handleUsesMagicCheckBoxToggled(dm.getDataModels().getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,)))
+    self.handleCustomClassCheckBoxToggled(dm.dataModels.getDataForModelIndex(modelName='CLASS', columnName='CUSTOM', filterColumns=('ID',), filterValues=(classId,)))
+    self.handleUsesMagicCheckBoxToggled(dm.dataModels.getDataForModelIndex(modelName='CLASS', columnName='USES_MAGIC', filterColumns=('ID',), filterValues=(classId,)))
 
     # Level progression table widget
     for i, _level in enumerate(_classProperties['level_progression']):
@@ -3059,7 +3887,7 @@ class CharacterBuilder(QWidget):
 
     menuLayout = QVBoxLayout()
     menuLayout.addWidget(self.builderButton)
-    #menuLayout.addWidget(self.customClassManagerButton)
+    menuLayout.addWidget(self.customClassManagerButton)
     menuLayout.setSpacing(15)
     menuLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
     self.menuWidget.setLayout(menuLayout)

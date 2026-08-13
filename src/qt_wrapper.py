@@ -26,7 +26,7 @@ class CreatureFilterGroupBox(QGroupBox):
     _standardHeight = 250
 
     # Get relevant data models
-    _dataModels = dm.getDataModels()
+    _dataModels = dm.dataModels
 
     # Define models and filter
     self.systemModel = _dataModels.model('GAME_SYSTEM')
@@ -167,11 +167,11 @@ class CreatureFilterGroupBox(QGroupBox):
     for i in range(self.nameModel.rowCount()):
       _items['ID'].append(self.nameModel.data(self.nameModel.index(i, _colId)))
 
-    _items['TYPE'] = dm.getDataModels().modelData(modelName='CREATURE_TYPE', columns=('NAME',))
-    _items['CR'] = dm.getDataModels().modelData(modelName='CHALLENGE_RATING', columns=('CR',))
-    _items['ALIGNMENT'] = dm.getDataModels().modelData(modelName='ALIGNMENT', columns=('NAME',))
-    _items['ENVIRONMENT'] = dm.getDataModels().modelData(modelName='ENVIRONMENT', columns=('NAME',))
-    _items['SOURCE'] = dm.getDataModels().modelData(modelName='CONTENT_SOURCE', columns=('NAME',))
+    _items['TYPE'] = dm.dataModels.modelData(modelName='CREATURE_TYPE', columns=('NAME',))
+    _items['CR'] = dm.dataModels.modelData(modelName='CHALLENGE_RATING', columns=('CR',))
+    _items['ALIGNMENT'] = dm.dataModels.modelData(modelName='ALIGNMENT', columns=('NAME',))
+    _items['ENVIRONMENT'] = dm.dataModels.modelData(modelName='ENVIRONMENT', columns=('NAME',))
+    _items['SOURCE'] = dm.dataModels.modelData(modelName='CONTENT_SOURCE', columns=('NAME',))
 
     return _items
 
@@ -189,7 +189,7 @@ class CreatureFilterGroupBox(QGroupBox):
     for i in range (self.creatureGameSystemModel.rowCount()):
       _ids['ID'].append(self.creatureGameSystemModel.data(self.creatureGameSystemModel.index(i, self.creatureGameSystemModel.sourceModel().record().indexOf('ID'))))
 
-    _dataModels = dm.getDataModels()
+    _dataModels = dm.dataModels
     if self.systemFilter.currentText() in ('OSE', 'B/X'):
       self.creatureModel = _dataModels.model('CREATURE_OSR')
       self.nameModel = _dataModels.defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR')
@@ -376,7 +376,7 @@ class DataTable(QTableView):
   def __init__(self, model='', lastSectionStretch=False):
     super().__init__()
 
-    #self.setModel(dm.getDataModels().defineProxyModel(modelType=dm.CreatureProxyModel, sourceModel='CREATURE_5E'))
+    #self.setModel(dm.dataModels.defineProxyModel(modelType=dm.CreatureProxyModel, sourceModel='CREATURE_5E'))
 
     #_proxyModel = QSortFilterProxyModel()
     #_proxyModel.setSourceModel(dm.DataModels().model('CREATURE'))
@@ -391,9 +391,9 @@ class DataTable(QTableView):
 
   def setDataModel(self, model):
     if model in ('OSE', 'B/X'):
-      self.setModel(dm.getDataModels().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR'))
+      self.setModel(dm.dataModels.defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_OSR'))
     elif model in ('D&D 5e'):
-      self.setModel(dm.getDataModels().defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_5E'))
+      self.setModel(dm.dataModels.defineProxyModel(modelType=dm.CreatureNameProxyModel, sourceModel='CREATURE_5E'))
 
     self.hideColumns()
 
@@ -687,6 +687,11 @@ class RichTextEditorTextEdit(QTextEdit):
 
       _docBlock = _docBlock.next()
 
+  def setHtml(self, _htmlStr):
+    # Set html via base method
+    super().setHtml(_htmlStr)
+    self.syncInternalBlockFormatWithDocument()
+
   def toHtml(self):
     if self.document().blockCount() > 0 and self.document().firstBlock().text():
       _blockCount = self.document().blockCount()
@@ -697,12 +702,13 @@ class RichTextEditorTextEdit(QTextEdit):
         _blockFormatInternal = self.blockFormats[_block.blockNumber()]
 
         # Enrich text with HTML tags depending on their block data and format
-        _htmlStrBlock = '<p>'
+        _htmlStrBlock = ''
         if _blockFormatInternal.type == 'heading':
           _headingLevel = _blockFormatInternal.headingLevel
           _headingString = f'<h{_headingLevel}>{_block.text()}</h{_headingLevel}>'
           _htmlStrTotal += f'{_headingString}'
         else:
+          _htmlStrBlock += '<div>'
           # Loop over fragments in block and enrich based on char format
           _it = _block.begin()
           while not _it.atEnd():
@@ -725,7 +731,7 @@ class RichTextEditorTextEdit(QTextEdit):
             _htmlStrBlock += '</u>' if _isUnderlined else ''
 
             _it += 1
-        _htmlStrTotal += _htmlStrBlock + '</p>'
+          _htmlStrTotal += f'{_htmlStrBlock}</div>'
         _block = _block.next()
       return _htmlStrTotal
 
@@ -833,10 +839,15 @@ class RichTextEditor(QWidget):
     _mainLayout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
     if self.mode == 'edit':
       _mainLayout.addLayout(_toolbarLayout)
+    else:
+      self.editor.setReadOnly(True)
     _mainLayout.addWidget(self.editor)
 
     self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     self.setLayout(_mainLayout)
+
+  def clear(self):
+    self.editor.clear()
 
   def handleHeadingComboBoxActivated(self):
     if self.headingComboBox.currentText() == 'Clear':
@@ -890,9 +901,6 @@ class RichTextEditor(QWidget):
   def handleItalicButton(self):
     self.applyFormat(fmtAction='italic')
 
-  def handleResetTextStyleButton(self):
-    pass
-
   def handleUnderlineButton(self):
     self.applyFormat(fmtAction='underline')
 
@@ -914,13 +922,6 @@ class RichTextEditor(QWidget):
     else:
       self.editor.applyFormatToCursorSelection(_cursor.selectionStart(), _cursor.selectionEnd(), fmtAction)
 
-  def editHeaderSectionName(self, table, sectionIndex):
-    _oldName = table.horizontalHeaderItem(sectionIndex).text()
-    _newName, _ok = QInputDialog.getText(table, 'Rename Column', 'New Column Name:', text=_oldName)
-
-    if _ok:
-      table.horizontalHeaderItem(sectionIndex).setText(_newName)
-
   def getHeadingFormat(self, headingLevel):
     _headingProperties = self.headingProperties[f'H{headingLevel}']
 
@@ -929,6 +930,9 @@ class RichTextEditor(QWidget):
     _fmt.setFontPointSize(_headingProperties['fontSize'])
 
     return _fmt
+
+  def setHtml(self, html : str):
+    self.editor.setHtml(html)
 
   def toHtml(self):
     return self.editor.toHtml()

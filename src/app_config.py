@@ -19,12 +19,20 @@ FOUNDRY_MODULE_ROOT_PATH = FOUNDRY_USER_DATA_PATH / 'modules'
 OSR_EQUIPMENT_PACK_NAME = 'osr-armor-weapons-equipment'
 OSR_EQUIPMENT_IMAGE_PATH = Path(FOUNDRY_MODULE_ROOT_PATH) / OSR_EQUIPMENT_PACK_NAME / 'data/images'
 
+#LOGGING
+DEBUG_MODE = True
 
 class Icons:
   _fontId : int = -1
   _fontFamily : str | None = None
   ICONS = {
-    'dice': '\uf522'
+    'dice': '\uf522',
+    'trash': '\uf1f8',
+    'refresh': '\uf0e2',
+    'list': '\uf03a',
+    'search': '\uf002',
+    'arrow-up': '\uf062',
+    'arrow-down': '\uf063',
   }
 
   @classmethod
@@ -32,7 +40,6 @@ class Icons:
     # Already initialized
     if cls._fontFamily is not None:
       return
-
 
     # Font Awesome
     cls._fontId = QFontDatabase.addApplicationFont(str(rootPath / 'fonts' / 'Font Awesome 7 Free-Solid-900.otf'))

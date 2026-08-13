@@ -27,17 +27,29 @@ class OkCancelDialog(QDialog):
 
 def coalesce(*values):
   for _value in values:
-    if _value:
+    if _value is not None and _value != '':
       return _value
 
   return None
 
-def fillSqlPlaceholders(statement, values=()):
+def dictToJson(data : dict) -> str:
+  return json.dumps(data)
+
+def fillSqlPlaceholders(statement : str, values=()) -> str:
   _statement = statement
   for _value in values:
     _statement = _statement.replace('?', repr(_value), 1)
 
   return _statement
+
+def formatIntegerAsOrdinal(value: int) -> str:
+  if 10 <= value % 100 <= 20:
+    # Handles 11, 12, 13
+    suffix = 'th'
+  else:
+    suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(value % 10, 'th')
+
+  return f"{value}{suffix}"
 
 def getDirContents(path : Path) -> list:
   return [f for f in path.iterdir()]
@@ -49,7 +61,7 @@ def getMainWindow():
 
   return None
 
-def isStringAnInteger(string):
+def isStringAnInteger(string : str) -> bool:
   try:
     int(string)
     return True
@@ -81,31 +93,20 @@ def makeFileDialog(acceptedFileExtensions : str | list = '', multipleFiles : boo
 
   return None
 
-def readJson(filePath):
+# Reads the contents of a csv file into a list of dicts
+# The fieldnames are taken from the first row of the csv file
+def readCsv(filePath):
+  _data = []
+  with open(filePath, "r", encoding="utf-8") as _f:
+    _reader = csv.DictReader(f=_f, delimiter=';', fieldnames=None)
+    for _row in _reader:
+      _data.append(_row)
+
+  return _data
+
+def readJson(filePath : Path):
   with open(filePath, "r", encoding="utf-8") as _f:
     return json.load(_f)
-
-def readPdf(filePath):
-  _pdfReader = PdfReader(filePath)
-  _pageCount = len(_pdfReader.pages)
-
-  _fields = _pdfReader.get_fields()
-  _listFormatted = '\n'.join(list(_fields.keys()))
-  with open('/home/patrick/Desktop/ose_cs_pdf_fields.txt', "w", encoding="utf-8") as _f:
-    _f.write(_listFormatted)
-
-  _pages = _pdfReader.pages
-
-  _p = _pdfReader.get_pages_showing_field(_fields['Equipment'])
-
-  _pdfWriter = PdfWriter()
-  _pdfWriter.append(_pdfReader)
-
-  _pdfWriter.update_page_form_field_values(_pdfWriter.pages[0], {"Name": "John Doe"}, auto_regenerate=False) #, flatten=True)
-  #_pdfWriter.remove_annotations(subtypes='/Widget')
-
-  _pdfWriter.write('/home/patrick/Desktop/test.pdf')
-  pass
 
 def rollDice(amount : int, faces : int) -> int:
   if faces == 1:
@@ -236,3 +237,4 @@ def writeDictToYaml(data : dict, filePath : Path):
 
   with open(filePath, 'w', encoding='utf-8') as _file:
     _file.write(_finalYamlStr)
+

@@ -2,6 +2,8 @@ import logging
 from PySide6.QtWidgets import QWidget, QTextEdit, QVBoxLayout, QPushButton, QSizePolicy
 from PySide6.QtGui import QFont, QTextCharFormat, QColor
 
+import app_config as apc
+
 
 class LogWindow(QWidget, logging.Handler):
   def __init__(self):
@@ -28,7 +30,11 @@ class LogWindow(QWidget, logging.Handler):
 
     self.setFormatter(logging.Formatter('%(asctime)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
     logging.getLogger().addHandler(self)
-    logging.getLogger().setLevel(logging.DEBUG)
+
+    if apc.DEBUG_MODE:
+      logging.getLogger().setLevel(logging.DEBUG)
+    else:
+      logging.getLogger().setLevel(logging.INFO)
 
   def emit(self, record):
     _msg = self.format(record)
@@ -42,6 +48,7 @@ class LogWindow(QWidget, logging.Handler):
     elif record.levelno >= logging.INFO:
       pass
     elif record.levelno >= logging.DEBUG:
+      fmt.setForeground(QColor("green"))
       print(f'[DEBUG] : {_msg}')
 
     _cursor.insertText(_msg + '\n', fmt)

@@ -141,13 +141,24 @@ def getTableStructureForAllTables(excludeSqliteTables=True):
 
   return _tableStructureAllTables
 
-def update(statement, args=(), commit=False):
-  return query(statement, args, commit)
-
 def insert(statement, args=(), commit=False):
   return query(statement, args, commit)
 
-def query(statement, args=(), commit=False, one=False):
+
+def simpleSelect(table : str, columns : list[str] | tuple = (), filterColumns : list[str] | tuple = (), filterValues : list[str | int] | tuple = (), one : bool = False):
+  _statement = f'select {", ".join(columns)} from {table}'
+  if len(filterColumns) > 0:
+    _statement += f' where {"and ".join([f"{column} = ?" for column in filterColumns])}'
+  return query(_statement, args=filterValues, one=one)
+
+def getSingleValue(table : str, column : str, filterColumns : list[str] | tuple = (), filterValues : list[str] | tuple = ()) -> int | str:
+  _statement = f'select {column} from {table}'
+  if len(filterColumns) > 0:
+    _statement += f' where {"and ".join([f"{column} = ?" for column in filterColumns])}'
+  _result = simpleSelect(table, [column], filterColumns, filterValues, one=True)
+  return _result[column]
+
+def query(statement, args=(), commit=False, one=False) -> list | dict:
   _query = QSqlQuery()
 
   _isSelect = statement.lstrip().lower().startswith('select')
@@ -211,3 +222,6 @@ def query(statement, args=(), commit=False, one=False):
   _query.finish()
 
   return _resultList[0] if len(_resultList) > 0 and one else _resultList
+
+def update(statement, args=(), commit=False):
+  return query(statement, args, commit)

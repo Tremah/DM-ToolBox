@@ -1,10 +1,12 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 import logging
 import pathlib as path
 
-import helper as hlp
-import app_config as apc
+import src.data_models as dm
+import src.helper as hlp
+import src.app_config as apc
 
 class GameSystemData:
   # Important file paths
@@ -15,17 +17,23 @@ class GameSystemData:
   gameSystemDataStorage = {
     'ose': {
       'label': 'Old-School Essentials',
-      'classDataPath': rulesPath / 'ose' / 'classes'
+      'classDataPath': rulesPath / 'ose' / 'classes',
+      'spellDataPath': rulesPath / 'ose' / 'spells'
     }
   }
 
   def __init__(self):
     self.classDefinitions = {}
     self.classData = {}
+
     self.characterDefinition = {}
+
+    self.spellDefinitions = {}
+    self.spellData = {}
 
     self.initStorage()
     self.readAndRegisterClassFiles()
+    self.readAndRegisterSpellFiles()
     self.registerCharacterDefinition(self.rulesPath / 'ose' / 'character_definition.json')
 
   # Checks if a class exists for a game system
@@ -39,9 +47,23 @@ class GameSystemData:
   def gameSystemExists(self, gameSystem : str) -> bool:
     return gameSystem.lower() in self.gameSystems
 
-  # Returns all classes for a game system in a dictionary
-  def getAllClassesForGameSystem(self, gameSystem : str) -> dict | None:
-    return self.classData.get(gameSystem.lower())
+  # Returns all classes for a game system in a TabularDataModel
+  # All base data interactions are done via models
+  def getAllClassesForGameSystem(self, gameSystem : str) -> dm.TabularDataModel:
+    _model = dm.dataModels.defineTabularDataModel(data=self.classData.get(gameSystem.lower()), columns=list(self.classDefinitions[gameSystem.lower()].keys()))
+    return _model
+
+  def getAllGameSystem(self):
+    return self.gameSystemDataStorage
+
+  # Returns all spells for a game system in a TabularDataModel
+  # All base data interactions are done via models
+  def getAllSpellsForGameSystem(self, gameSystem : str) -> dm.TabularDataModel:
+    _model = dm.dataModels.defineTabularDataModel(data=self.spellData.get(gameSystem.lower()), columns=list(self.spellDefinitions[gameSystem.lower()].keys()))
+    return _model
+
+  def getAllSpellsForClass(self, gameSystem : str, className : str) -> dict[str, Any]:
+    return self.spellData.get(gameSystem.lower()).get(className)
 
   def getCharacterDefinition(self) -> dict | None:
     return self.characterDefinition
@@ -52,7 +74,7 @@ class GameSystemData:
     if _classes is None:
       return None
 
-    return _classes.get(className.lower())
+    return dm.dataModels.getDataForModelRow(model=_classes, filterColumn='name', filterValue=className)
 
   def getClassDefinition(self, gameSystem : str) -> dict | None:
     return self.classDefinitions.get(gameSystem.lower())
@@ -78,11 +100,22 @@ class GameSystemData:
 
     return _result
 
+  def getSpell(self, gameSystem : str, className : str, spellName : str) -> dict[str, Any] | None:
+    for _level in self.spellData[gameSystem.lower()][className].values():
+      for _spell in _level.keys():
+        if _spell == spellName:
+          return _level[_spell]
+
+    return None
+
   # Initializes the storage
   def initStorage(self):
     for _system in self.gameSystems:
       self.classData[_system] = {}
       self.registerClassDefinition(_system)
+
+      self.spellData[_system] = {}
+      self.registerSpellDefinition(_system)
 
   def readAndRegisterClassFiles(self):
     for _system in self.gameSystems:
@@ -106,11 +139,33 @@ class GameSystemData:
 
         self.registerClass(_system, _file)
 
+  def readAndRegisterSpellFiles(self):
+    for _system in self.gameSystems:
+      _systemData = self.gameSystemDataStorage.get(_system)
+      if _systemData is None:
+        logging.error(f'Game system {_system} is not registered.')
+        continue
+
+      _filePath = _systemData.get('spellDataPath')
+      if _filePath is None:
+        logging.error(f'No spell data path found for game system {_systemData.get("label")}.')
+        continue
+
+      if not _filePath.exists():
+        logging.error(f'Spell data path {_filePath} does not exist for game system {_systemData.get("label")}.')
+        continue
+
+      for _file in hlp.getDirContents(_filePath):
+        if _file.stem == '_definition':
+          continue
+
+        self.registerSpells(_system, _file)
+
   # Registers a class for a game system
   def registerClass(self, gameSystem : str, filePath : Path) -> bool:
     _gameSystemLower = gameSystem.lower()
-    _classDefinition = hlp.readJson(filePath)
-    _classNameLower = _classDefinition['name'].lower()
+    _classData = hlp.readJson(filePath)
+    _classNameLower = _classData['name'].lower()
 
     # Game system is not registered
     if not self.gameSystemExists(_gameSystemLower):
@@ -122,12 +177,20 @@ class GameSystemData:
       logging.error(f'Class "{_classNameLower.title()}" for game system {gameSystem} is already registered.')
       return False
 
-    _classDefinition = hlp.readJson(filePath)
-    if not self.verifyClassIntegrity(_gameSystemLower, _classNameLower, _classDefinition):
+    _classData = hlp.readJson(filePath)
+    if not self.verifyClassIntegrity(_gameSystemLower, _classNameLower, _classData):
       logging.error(f'Class definition for class "{_classNameLower.title()}" for game system {_gameSystemLower} is not valid.')
       return False
 
-    self.classData[_gameSystemLower][_classNameLower] = _classDefinition
+    self.classData[_gameSystemLower][_classNameLower] = _classData
+    return True
+
+  def registerSpells(self, gameSystem : str, filePath : Path) -> bool:
+    _spellData = hlp.readJson(filePath)
+    _class = _spellData.pop('class')
+
+    self.spellData[gameSystem.lower()][_class] = _spellData
+
     return True
 
   def registerCharacterDefinition(self, filePath : Path) -> dict | None:
@@ -136,8 +199,14 @@ class GameSystemData:
   def registerClassDefinition(self, gameSystem : str, definitionFileName : str = '_definition') -> dict | None:
     _gameSystemLower = gameSystem.lower()
 
-    _definition = hlp.readJson(f'{self.rulesPath}/{gameSystem.lower()}/classes/{definitionFileName}.json')
+    _definition = hlp.readJson(self.rulesPath / _gameSystemLower/ 'classes' / f'{definitionFileName}.json')
     self.classDefinitions[_gameSystemLower] = _definition
+
+  def registerSpellDefinition(self, gameSystem : str, definitionFileName : str = '_definition') -> dict | None:
+    _gameSystemLower = gameSystem.lower()
+
+    _definition = hlp.readJson(self.rulesPath / _gameSystemLower/ 'classes' / f'{definitionFileName}.json')
+    self.spellDefinitions[_gameSystemLower] = _definition
 
   # Compares a class description file with the definition stored in the classDataStorage
   def verifyClassIntegrity(self, gameSystem, className, classData):
@@ -162,5 +231,13 @@ gameSystemData = GameSystemData()
 
 def getGameSystemData() -> GameSystemData:
   return gameSystemData
+
+def test():
+  _spell = gameSystemData.getSpell('ose', 'Magic-User', 'Sleep')
+  _spells = gameSystemData.getAllSpellsForGameSystem('ose')
+  _spell = gameSystemData.getAllSpellsForClass('ose', 'Magic-User')
+
+
+test()
 
 
